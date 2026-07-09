@@ -118,9 +118,9 @@ final class LightsService {
             return
         }
 
-        let group = clean.customLightGroups[index]
+        let customGroup = clean.customLightGroups[index]
         let members = lights.filter { light in
-            group.lightNames.contains { $0.caseInsensitiveCompare(light.name) == .orderedSame }
+            customGroup.lightNames.contains { $0.caseInsensitiveCompare(light.name) == .orderedSame }
         }
 
         guard !members.isEmpty else {
@@ -128,30 +128,30 @@ final class LightsService {
             return
         }
 
-        let group = DispatchGroup()
+        let dispatchGroup = DispatchGroup()
         var lastError: LocalHTTPError?
         let lock = NSLock()
 
         for member in members {
-            group.enter()
+            dispatchGroup.enter()
             if let brightness = brightness {
                 setBrightness(member.id, brightness: brightness) { result in
                     lock.lock()
                     if case .failure(let error) = result { lastError = error }
                     lock.unlock()
-                    group.leave()
+                    dispatchGroup.leave()
                 }
             } else {
                 setLightOn(member.id, isOn: isOn) { result in
                     lock.lock()
                     if case .failure(let error) = result { lastError = error }
                     lock.unlock()
-                    group.leave()
+                    dispatchGroup.leave()
                 }
             }
         }
 
-        group.notify(queue: .main) {
+        dispatchGroup.notify(queue: .main) {
             if let error = lastError {
                 completion(.failure(error))
             } else {
