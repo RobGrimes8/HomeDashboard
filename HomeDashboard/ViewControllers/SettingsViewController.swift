@@ -36,10 +36,10 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Settings"
-        view.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
+        view.backgroundColor = DashboardTheme.background
 
         navigationController?.navigationBar.barStyle = .black
-        navigationController?.navigationBar.barTintColor = UIColor(white: 0.08, alpha: 1.0)
+        navigationController?.navigationBar.barTintColor = DashboardTheme.navBar
         navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
 
         tableView.backgroundColor = UIColor(white: 0.06, alpha: 1.0)

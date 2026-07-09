@@ -7,6 +7,7 @@ final class GroupCardCell: UICollectionViewCell {
     var onTurnOn: (() -> Void)?
     var onTurnOff: (() -> Void)?
 
+    private let shadowView = UIView()
     private let cardView = UIView()
     private let headerView = UIView()
     private let iconLabel = UILabel()
@@ -20,38 +21,37 @@ final class GroupCardCell: UICollectionViewCell {
         super.init(frame: frame)
         contentView.backgroundColor = .clear
 
-        cardView.backgroundColor = DashboardTheme.cardBottom
-        cardView.layer.cornerRadius = 16
-        cardView.layer.masksToBounds = true
-        cardView.layer.shadowColor = UIColor.black.cgColor
-        cardView.layer.shadowOpacity = 0.18
-        cardView.layer.shadowRadius = 8
-        cardView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        shadowView.backgroundColor = .clear
+        shadowView.layer.shadowColor = UIColor.black.cgColor
+        shadowView.layer.shadowOpacity = 0.22
+        shadowView.layer.shadowRadius = 10
+        shadowView.layer.shadowOffset = CGSize(width: 0, height: 4)
 
-        headerView.layer.cornerRadius = 16
-        headerView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        cardView.backgroundColor = DashboardTheme.cardBottom
+        cardView.layer.cornerRadius = 18
+        cardView.layer.masksToBounds = true
+
         headerView.clipsToBounds = true
 
-        iconLabel.font = UIFont.systemFont(ofSize: 34)
+        iconLabel.font = UIFont.systemFont(ofSize: 40)
         iconLabel.textAlignment = .center
 
-        nameLabel.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        nameLabel.font = UIFont.systemFont(ofSize: 17, weight: .bold)
         nameLabel.textColor = DashboardTheme.cardTitle
         nameLabel.numberOfLines = 2
 
-        detailLabel.font = UIFont.systemFont(ofSize: 11, weight: .regular)
+        detailLabel.font = UIFont.systemFont(ofSize: 12, weight: .regular)
         detailLabel.textColor = DashboardTheme.cardSubtitle
 
-        style(button: onButton, title: "ON", active: true)
-        style(button: offButton, title: "OFF", active: false)
         onButton.addTarget(self, action: #selector(onTapped), for: .touchUpInside)
         offButton.addTarget(self, action: #selector(offTapped), for: .touchUpInside)
 
-        [cardView, headerView, iconLabel, nameLabel, detailLabel, onButton, offButton].forEach {
+        [shadowView, cardView, headerView, iconLabel, nameLabel, detailLabel, onButton, offButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
-        contentView.addSubview(cardView)
+        contentView.addSubview(shadowView)
+        shadowView.addSubview(cardView)
         cardView.addSubview(headerView)
         headerView.addSubview(iconLabel)
         cardView.addSubview(nameLabel)
@@ -60,33 +60,38 @@ final class GroupCardCell: UICollectionViewCell {
         cardView.addSubview(offButton)
 
         NSLayoutConstraint.activate([
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+            shadowView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            shadowView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 2),
+            shadowView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -2),
+            shadowView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+
+            cardView.topAnchor.constraint(equalTo: shadowView.topAnchor),
+            cardView.leadingAnchor.constraint(equalTo: shadowView.leadingAnchor),
+            cardView.trailingAnchor.constraint(equalTo: shadowView.trailingAnchor),
+            cardView.bottomAnchor.constraint(equalTo: shadowView.bottomAnchor),
 
             headerView.topAnchor.constraint(equalTo: cardView.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 88),
+            headerView.heightAnchor.constraint(equalToConstant: 100),
 
             iconLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
             iconLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
 
-            nameLabel.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 10),
-            nameLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 12),
-            nameLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
+            nameLabel.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 12),
+            nameLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 14),
+            nameLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -14),
 
-            detailLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
+            detailLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
             detailLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             detailLabel.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
 
-            onButton.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 10),
-            onButton.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -10),
-            onButton.heightAnchor.constraint(equalToConstant: 30),
+            onButton.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 12),
+            onButton.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -14),
+            onButton.heightAnchor.constraint(equalToConstant: 44),
 
-            offButton.leadingAnchor.constraint(equalTo: onButton.trailingAnchor, constant: 8),
-            offButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -10),
+            offButton.leadingAnchor.constraint(equalTo: onButton.trailingAnchor, constant: 10),
+            offButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
             offButton.bottomAnchor.constraint(equalTo: onButton.bottomAnchor),
             offButton.heightAnchor.constraint(equalTo: onButton.heightAnchor),
             offButton.widthAnchor.constraint(equalTo: onButton.widthAnchor)
@@ -99,6 +104,7 @@ final class GroupCardCell: UICollectionViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        shadowView.layer.shadowPath = UIBezierPath(roundedRect: shadowView.bounds, cornerRadius: 18).cgPath
         DashboardTheme.applyGradient(to: headerView)
     }
 
@@ -134,8 +140,8 @@ final class GroupCardCell: UICollectionViewCell {
 
     private func style(button: UIButton, title: String, active: Bool) {
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .bold)
-        button.layer.cornerRadius = 8
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .bold)
+        button.layer.cornerRadius = 10
         button.layer.masksToBounds = true
 
         if active {

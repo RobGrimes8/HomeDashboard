@@ -1,0 +1,5 @@
+// Copy this file to Signing.xcconfig and set your Personal Team ID.
+// Find it in Xcode: Target → Signing & Capabilities → Team
+// Signing.xcconfig is gitignored so git pull will not overwrite your team.
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE

@@ -1,0 +1,2 @@
+// Shared project settings. Local signing lives in Signing.xcconfig (gitignored).
+#include? "Signing.xcconfig"

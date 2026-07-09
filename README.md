@@ -22,21 +22,34 @@ Built with **UIKit** (not SwiftUI) so it runs on iOS 12.5.x.
    open /Users/robertgrimes/WebDev/HomeDashboard/HomeDashboard.xcodeproj
    ```
 
-2. **Signing**
-   - Select the **HomeDashboard** target → **Signing & Capabilities**
-   - Check **Automatically manage signing**
-   - Choose your **Personal Team** (free Apple ID)
+2. **Signing (one-time setup on your build Mac)**
+   ```bash
+   ./scripts/setup-signing.sh
+   ```
+   This creates `HomeDashboard/Config/Signing.xcconfig` with your Team ID. That file is **gitignored**, so `git pull` will not wipe your signing settings.
+
+   Or copy the example manually:
+   ```bash
+   cp HomeDashboard/Config/Signing.xcconfig.example HomeDashboard/Config/Signing.xcconfig
+   ```
+   Edit `Signing.xcconfig` and replace `YOUR_TEAM_ID_HERE` with your Team ID from Xcode → Signing & Capabilities.
 
 3. **Connect your iPad mini 2** via USB and select it as the run destination.
 
 4. **Build & Run** (⌘R). Trust the developer profile on the iPad:
    *Settings → General → Device Management → Trust*
 
-5. **Configure devices** in the app’s **Settings** tab (or edit `HomeDashboard/Resources/Config.json` before building).
+5. **Configure devices** in the app’s **Settings** tab.
 
-## Light Groups
+## Rooms (main screen)
 
-The **Lights** tab has two sections:
+The **Rooms** tab shows your Hue rooms as **large swipeable cards** with **ON / OFF** buttons.
+
+- Swipe sideways to see all rooms
+- Tap **All Lights** (top left) for individual lights with brightness sliders
+- Leave **Sonos IPs** empty in Settings unless you use Sonos (empty IPs speed up Hue refreshes)
+
+## Light Groups (Hue + custom)
 
 ### Hue rooms (automatic)
 Rooms and zones from your Hue app sync automatically — e.g. **Office**, **Living room**, **Garden**. Control the whole room with one toggle or slider.

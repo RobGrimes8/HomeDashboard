@@ -9,11 +9,11 @@ final class MainTabBarController: UITabBarController {
         tabBar.tintColor = DashboardTheme.accent
         tabBar.unselectedItemTintColor = UIColor(white: 0.55, alpha: 1.0)
 
-        let dashboard = DashboardViewController()
-        dashboard.tabBarItem = UITabBarItem(title: "Home", image: tabIcon(systemName: "house", fallback: "H"), tag: 0)
-
         let lights = LightsViewController()
-        lights.tabBarItem = UITabBarItem(title: "Lights", image: tabIcon(systemName: "lightbulb", fallback: "L"), tag: 1)
+        lights.tabBarItem = UITabBarItem(title: "Rooms", image: tabIcon(systemName: "lightbulb", fallback: "L"), tag: 0)
+
+        let dashboard = DashboardViewController()
+        dashboard.tabBarItem = UITabBarItem(title: "Home", image: tabIcon(systemName: "house", fallback: "H"), tag: 1)
 
         let sonos = SonosViewController()
         sonos.tabBarItem = UITabBarItem(title: "Sonos", image: tabIcon(systemName: "speaker.wave.2", fallback: "S"), tag: 2)
@@ -22,11 +22,12 @@ final class MainTabBarController: UITabBarController {
         settings.tabBarItem = UITabBarItem(title: "Settings", image: tabIcon(systemName: "gearshape", fallback: "⚙"), tag: 3)
 
         viewControllers = [
-            UINavigationController(rootViewController: dashboard),
             UINavigationController(rootViewController: lights),
+            UINavigationController(rootViewController: dashboard),
             UINavigationController(rootViewController: sonos),
             UINavigationController(rootViewController: settings)
         ]
+        selectedIndex = 0
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {

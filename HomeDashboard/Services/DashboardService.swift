@@ -79,17 +79,19 @@ final class DashboardService {
             }
         }
 
-        group.enter()
-        sonosService.fetchSpeakers { result in
-            lock.lock()
-            defer { lock.unlock() }
-            switch result {
-            case .success(let devices):
-                speakers = devices
-            case .failure(let error):
-                errors.append("Sonos: \(error.localizedDescription)")
+        if !config.sonosSpeakerIPs.isEmpty {
+            group.enter()
+            sonosService.fetchSpeakers { result in
+                lock.lock()
+                defer { lock.unlock() }
+                switch result {
+                case .success(let devices):
+                    speakers = devices
+                case .failure(let error):
+                    errors.append("Sonos: \(error.localizedDescription)")
+                }
+                group.leave()
             }
-            group.leave()
         }
 
         group.notify(queue: .main) { [weak self] in
