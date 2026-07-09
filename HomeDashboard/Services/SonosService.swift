@@ -124,8 +124,14 @@ final class SonosService {
     }
 
     func play(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.performPlay(on: coordinatorIP, completion: completion)
+        }
+    }
+
+    private func performPlay(on ip: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
         avTransportAction(
-            ip: speakerIP,
+            ip: ip,
             action: "urn:schemas-upnp-org:service:AVTransport:1#Play",
             body: """
             <?xml version="1.0" encoding="utf-8"?>
@@ -138,62 +144,72 @@ final class SonosService {
               </s:Body>
             </s:Envelope>
             """,
-            completion: completion
+            completion: completion,
+            skipCoordinatorResolution: true
         )
     }
 
     func pause(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        avTransportAction(
-            ip: speakerIP,
-            action: "urn:schemas-upnp-org:service:AVTransport:1#Pause",
-            body: """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Pause xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                </u:Pause>
-              </s:Body>
-            </s:Envelope>
-            """,
-            completion: completion
-        )
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.avTransportAction(
+                ip: coordinatorIP,
+                action: "urn:schemas-upnp-org:service:AVTransport:1#Pause",
+                body: """
+                <?xml version="1.0" encoding="utf-8"?>
+                <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                  <s:Body>
+                    <u:Pause xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                      <InstanceID>0</InstanceID>
+                    </u:Pause>
+                  </s:Body>
+                </s:Envelope>
+                """,
+                completion: completion,
+                skipCoordinatorResolution: true
+            )
+        }
     }
 
     func nextTrack(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        avTransportAction(
-            ip: speakerIP,
-            action: "urn:schemas-upnp-org:service:AVTransport:1#Next",
-            body: """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Next xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                </u:Next>
-              </s:Body>
-            </s:Envelope>
-            """,
-            completion: completion
-        )
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.avTransportAction(
+                ip: coordinatorIP,
+                action: "urn:schemas-upnp-org:service:AVTransport:1#Next",
+                body: """
+                <?xml version="1.0" encoding="utf-8"?>
+                <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                  <s:Body>
+                    <u:Next xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                      <InstanceID>0</InstanceID>
+                    </u:Next>
+                  </s:Body>
+                </s:Envelope>
+                """,
+                completion: completion,
+                skipCoordinatorResolution: true
+            )
+        }
     }
 
     func previousTrack(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        avTransportAction(
-            ip: speakerIP,
-            action: "urn:schemas-upnp-org:service:AVTransport:1#Previous",
-            body: """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Previous xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                </u:Previous>
-              </s:Body>
-            </s:Envelope>
-            """,
-            completion: completion
-        )
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.avTransportAction(
+                ip: coordinatorIP,
+                action: "urn:schemas-upnp-org:service:AVTransport:1#Previous",
+                body: """
+                <?xml version="1.0" encoding="utf-8"?>
+                <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                  <s:Body>
+                    <u:Previous xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                      <InstanceID>0</InstanceID>
+                    </u:Previous>
+                  </s:Body>
+                </s:Envelope>
+                """,
+                completion: completion,
+                skipCoordinatorResolution: true
+            )
+        }
     }
 
     func playSpotifyPlaylist(
@@ -208,14 +224,30 @@ final class SonosService {
             return
         }
 
-        attemptSpotifyPlaylistPlayback(
-            on: speakerIP,
-            title: title,
-            parsed: parsed,
-            regions: ["2311", "3079"],
-            regionIndex: 0,
-            completion: completion
-        )
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            guard let self = self else { return }
+            if coordinatorIP != speakerIP {
+                DebugLog.shared.log("Spotify playlist via coordinator \(coordinatorIP) (speaker \(speakerIP))")
+            }
+
+            self.fetchSpotifySerialNumber(at: coordinatorIP) { serialHint in
+                var serialNumbers = [0, 1, 7]
+                if let serialHint = serialHint, !serialNumbers.contains(serialHint) {
+                    serialNumbers.insert(serialHint, at: 0)
+                }
+
+                self.attemptSpotifyPlaylistPlayback(
+                    on: coordinatorIP,
+                    title: title,
+                    parsed: parsed,
+                    regions: ["2311", "3079"],
+                    regionIndex: 0,
+                    serialNumbers: serialNumbers,
+                    serialIndex: 0,
+                    completion: completion
+                )
+            }
+        }
     }
 
     private struct ParsedSpotifyURI {
@@ -232,45 +264,95 @@ final class SonosService {
         parsed: ParsedSpotifyURI,
         regions: [String],
         regionIndex: Int,
+        serialNumbers: [Int],
+        serialIndex: Int,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
         guard regionIndex < regions.count else {
             completion(.failure(.invalidResponse))
             return
         }
+        guard serialIndex < serialNumbers.count else {
+            completion(.failure(.invalidResponse))
+            return
+        }
 
         let region = regions[regionIndex]
-        let request = spotifyPlaylistRequest(title: title, parsed: parsed, region: region)
+        let serialNumber = serialNumbers[serialIndex]
+        let request = spotifyPlaylistRequest(title: title, parsed: parsed, region: region, serialNumber: serialNumber)
 
         setSpotifyPlaylistTransport(on: speakerIP, request: request) { [weak self] result in
             switch result {
             case .success:
-                self?.play(speakerIP, completion: completion)
+                self?.performPlay(on: speakerIP, completion: completion)
             case .failure(let setError):
                 self?.addSpotifyPlaylistToQueue(on: speakerIP, request: request) { queueResult in
                     switch queueResult {
                     case .success:
-                        self?.play(speakerIP, completion: completion)
+                        self?.performPlay(on: speakerIP, completion: completion)
                     case .failure:
-                        let nextRegion = regionIndex + 1
-                        if nextRegion < regions.count {
-                            DebugLog.shared.log("Spotify playlist retry with region \(regions[nextRegion])")
-                            self?.attemptSpotifyPlaylistPlayback(
-                                on: speakerIP,
-                                title: title,
-                                parsed: parsed,
-                                regions: regions,
-                                regionIndex: nextRegion,
-                                completion: completion
-                            )
-                        } else {
-                            DebugLog.shared.error("Spotify playlist failed: \(setError.localizedDescription)")
-                            completion(.failure(setError))
-                        }
+                        self?.advanceSpotifyPlaylistAttempt(
+                            on: speakerIP,
+                            title: title,
+                            parsed: parsed,
+                            regions: regions,
+                            regionIndex: regionIndex,
+                            serialNumbers: serialNumbers,
+                            serialIndex: serialIndex,
+                            lastError: setError,
+                            completion: completion
+                        )
                     }
                 }
             }
         }
+    }
+
+    private func advanceSpotifyPlaylistAttempt(
+        on speakerIP: String,
+        title: String,
+        parsed: ParsedSpotifyURI,
+        regions: [String],
+        regionIndex: Int,
+        serialNumbers: [Int],
+        serialIndex: Int,
+        lastError: LocalHTTPError,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        let nextSerial = serialIndex + 1
+        if nextSerial < serialNumbers.count {
+            DebugLog.shared.log("Spotify playlist retry sn=\(serialNumbers[nextSerial]) region=\(regions[regionIndex])")
+            attemptSpotifyPlaylistPlayback(
+                on: speakerIP,
+                title: title,
+                parsed: parsed,
+                regions: regions,
+                regionIndex: regionIndex,
+                serialNumbers: serialNumbers,
+                serialIndex: nextSerial,
+                completion: completion
+            )
+            return
+        }
+
+        let nextRegion = regionIndex + 1
+        if nextRegion < regions.count {
+            DebugLog.shared.log("Spotify playlist retry region \(regions[nextRegion])")
+            attemptSpotifyPlaylistPlayback(
+                on: speakerIP,
+                title: title,
+                parsed: parsed,
+                regions: regions,
+                regionIndex: nextRegion,
+                serialNumbers: serialNumbers,
+                serialIndex: 0,
+                completion: completion
+            )
+            return
+        }
+
+        DebugLog.shared.error("Spotify playlist failed: \(lastError.localizedDescription)")
+        completion(.failure(lastError))
     }
 
     private struct SpotifyPlaylistRequest {
@@ -281,10 +363,15 @@ final class SonosService {
         let cdUdn: String
     }
 
-    private func spotifyPlaylistRequest(title: String, parsed: ParsedSpotifyURI, region: String) -> SpotifyPlaylistRequest {
+    private func spotifyPlaylistRequest(
+        title: String,
+        parsed: ParsedSpotifyURI,
+        region: String,
+        serialNumber: Int
+    ) -> SpotifyPlaylistRequest {
         let encodedURI = parsed.encodedURI
         return SpotifyPlaylistRequest(
-            transportURI: "x-rincon-cpcontainer:1006206c\(encodedURI)?sid=9&flags=8300&sn=7",
+            transportURI: "x-rincon-cpcontainer:1006206c\(encodedURI)?sid=9&flags=8300&sn=\(serialNumber)",
             queueURI: "x-rincon-cpcontainer:1006206c\(encodedURI)",
             itemId: "1006206c\(encodedURI)",
             title: title,
@@ -325,7 +412,8 @@ final class SonosService {
             ip: speakerIP,
             action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
             body: body,
-            completion: completion
+            completion: completion,
+            skipCoordinatorResolution: true
         )
     }
 
@@ -355,7 +443,8 @@ final class SonosService {
             ip: speakerIP,
             action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
             body: body,
-            completion: completion
+            completion: completion,
+            skipCoordinatorResolution: true
         )
     }
 
@@ -552,20 +641,219 @@ final class SonosService {
         ip: String,
         action: String,
         body: String,
-        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void,
+        skipCoordinatorResolution: Bool = false
     ) {
+        let perform = { [weak self] (targetIP: String) in
+            self?.performSOAP(
+                ip: targetIP,
+                controlPath: "/MediaRenderer/AVTransport/Control",
+                action: action,
+                body: body
+            ) { result in
+                switch result {
+                case .success:
+                    completion(.success(()))
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        }
+
+        if skipCoordinatorResolution {
+            perform(ip)
+            return
+        }
+
+        withCoordinatorIP(for: ip) { coordinatorIP in
+            if coordinatorIP != ip {
+                DebugLog.shared.log("Sonos AVTransport via coordinator \(coordinatorIP) (speaker \(ip))")
+            }
+            perform(coordinatorIP)
+        }
+    }
+
+    private func withCoordinatorIP(for ip: String, completion: @escaping (String) -> Void) {
+        fetchDeviceUUID(at: ip) { [weak self] uuid in
+            guard let self = self else { return }
+            guard let uuid = uuid else {
+                completion(ip)
+                return
+            }
+
+            self.fetchZoneGroupState(at: ip) { zoneGroupState in
+                if let zoneGroupState = zoneGroupState,
+                   let coordinatorIP = self.coordinatorIP(for: uuid, in: zoneGroupState),
+                   coordinatorIP != ip {
+                    completion(coordinatorIP)
+                } else {
+                    completion(ip)
+                }
+            }
+        }
+    }
+
+    private func fetchDeviceUUID(at ip: String, completion: @escaping (String?) -> Void) {
+        let url = "http://\(ip):1400/xml/device_description.xml"
+        client.get(urlString: url) { result in
+            switch result {
+            case .failure:
+                completion(nil)
+            case .success(let data):
+                guard let xml = String(data: data, encoding: .utf8) else {
+                    completion(nil)
+                    return
+                }
+                completion(self.normalizedSonosUUID(from: self.extractXMLValue(named: "UDN", from: xml)))
+            }
+        }
+    }
+
+    private func fetchZoneGroupState(at ip: String, completion: @escaping (String?) -> Void) {
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:GetZoneGroupState xmlns:u="urn:schemas-upnp-org:service:ZoneGroupTopology:1"/>
+          </s:Body>
+        </s:Envelope>
+        """
+
         performSOAP(
             ip: ip,
-            controlPath: "/MediaRenderer/AVTransport/Control",
-            action: action,
+            controlPath: "/ZoneGroupTopology/Control",
+            action: "urn:schemas-upnp-org:service:ZoneGroupTopology:1#GetZoneGroupState",
             body: body
         ) { result in
             switch result {
-            case .success:
-                completion(.success(()))
-            case .failure(let error):
-                completion(.failure(error))
+            case .failure:
+                completion(nil)
+            case .success(let xml):
+                completion(self.extractXMLValue(named: "ZoneGroupState", from: xml))
             }
+        }
+    }
+
+    private func coordinatorIP(for deviceUUID: String, in zoneGroupState: String) -> String? {
+        let decoded = decodeHTMLEntities(zoneGroupState)
+        let groups = decoded.components(separatedBy: "<ZoneGroup ")
+        guard groups.count > 1 else { return nil }
+
+        for group in groups.dropFirst() {
+            guard group.contains("UUID=\"\(deviceUUID)\"") else { continue }
+            guard
+                let coordinatorUUID = extractAttribute(named: "Coordinator", from: group),
+                let memberBlock = group.range(of: "UUID=\"\(coordinatorUUID)\"")
+            else {
+                continue
+            }
+
+            let tail = String(group[memberBlock.lowerBound...])
+            guard
+                let location = extractAttribute(named: "Location", from: tail),
+                let coordinatorIP = ipFromSonosLocation(location)
+            else {
+                continue
+            }
+            return coordinatorIP
+        }
+
+        return nil
+    }
+
+    private func fetchSpotifySerialNumber(at ip: String, completion: @escaping (Int?) -> Void) {
+        let url = "http://\(ip):1400/status/player"
+        client.get(urlString: url) { result in
+            switch result {
+            case .failure:
+                completion(nil)
+            case .success(let data):
+                guard let xml = String(data: data, encoding: .utf8) else {
+                    completion(nil)
+                    return
+                }
+                completion(self.extractSpotifySerialNumber(from: xml))
+            }
+        }
+    }
+
+    private func extractSpotifySerialNumber(from xml: String) -> Int? {
+        let pattern = "sn=(\\d+)"
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern),
+            let match = regex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
+            let range = Range(match.range(at: 1), in: xml),
+            let value = Int(String(xml[range]))
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private func normalizedSonosUUID(from udn: String?) -> String? {
+        guard var udn = udn?.trimmingCharacters(in: .whitespacesAndNewlines), !udn.isEmpty else {
+            return nil
+        }
+        if udn.hasPrefix("uuid:") {
+            udn = String(udn.dropFirst(5))
+        }
+        return udn
+    }
+
+    private func extractAttribute(named name: String, from fragment: String) -> String? {
+        let pattern = "\(name)=\"([^\"]+)\""
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern),
+            let match = regex.firstMatch(in: fragment, options: [], range: NSRange(fragment.startIndex..., in: fragment)),
+            let range = Range(match.range(at: 1), in: fragment)
+        else {
+            return nil
+        }
+        return String(fragment[range])
+    }
+
+    private func ipFromSonosLocation(_ location: String) -> String? {
+        guard let url = URL(string: location), let host = url.host, !host.isEmpty else {
+            return nil
+        }
+        return host
+    }
+
+    private func decodeHTMLEntities(_ string: String) -> String {
+        return string
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
+    private func soapFaultMessage(from xml: String) -> String? {
+        guard xml.contains("Fault") || xml.contains("faultstring") else { return nil }
+
+        let faultString = extractXMLValue(named: "faultstring", from: xml) ?? "UPnPError"
+        guard let errorCode = extractXMLValue(named: "errorCode", from: xml) else {
+            return faultString
+        }
+
+        let description = upnpErrorDescription(for: errorCode)
+        if description.isEmpty {
+            return "UPnP Error \(errorCode) (\(faultString))"
+        }
+        return "UPnP Error \(errorCode): \(description)"
+    }
+
+    private func upnpErrorDescription(for code: String) -> String {
+        switch code {
+        case "800":
+            return "Command not supported or not a coordinator"
+        case "714":
+            return "Invalid metadata or URI"
+        case "701":
+            return "Transition not available"
+        case "402":
+            return "Invalid arguments"
+        default:
+            return ""
         }
     }
 
@@ -625,7 +913,7 @@ final class SonosService {
                 return
             }
 
-            if let fault = self.extractXMLValue(named: "faultstring", from: xml) {
+            if let fault = self.soapFaultMessage(from: xml) {
                 DebugLog.shared.error("Sonos SOAP fault: \(fault)")
                 completion(.failure(.transport(NSError(domain: "SonosSOAP", code: 1, userInfo: [NSLocalizedDescriptionKey: fault]))))
                 return
