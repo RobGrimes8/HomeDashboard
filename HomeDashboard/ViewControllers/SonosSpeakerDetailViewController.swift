@@ -151,6 +151,10 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         service.delegate = self
         updateUI()
         loadSonosFavorites()
+
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(favoriteLongPressed(_:)))
+        longPress.minimumPressDuration = 0.6
+        tableView.addGestureRecognizer(longPress)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -216,7 +220,7 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         guard let section = Section(rawValue: section) else { return nil }
         switch section {
         case .sonosFavorites:
-            return "Sonos Favorites (DEBUG — tap for full detail)"
+            return "Sonos Favorites (long-press for debug)"
         case .configuredPlaylists:
             return playlists.isEmpty ? nil : "Settings Playlists"
         }
@@ -306,13 +310,9 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         case .sonosFavorites:
             guard !isLoadingFavorites, !sonosFavorites.isEmpty else { return }
             let favorite = sonosFavorites[indexPath.row]
-            let debugVC = FavoriteDebugViewController(
-                favorite: favorite,
-                index: indexPath.row,
-                speaker: speaker,
-                service: service
-            )
-            navigationController?.pushViewController(debugVC, animated: true)
+            service.playSpeakerFavorite(speaker, favorite: favorite) { [weak self] result in
+                self?.handlePlaybackResult(result)
+            }
         case .configuredPlaylists:
             guard !playlists.isEmpty else { return }
             let playlist = playlists[indexPath.row]
@@ -330,6 +330,27 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         case .configuredPlaylists:
             return 52
         }
+    }
+
+    @objc private func favoriteLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let point = gesture.location(in: tableView)
+        guard let indexPath = tableView.indexPathForRow(at: point),
+              let section = Section(rawValue: indexPath.section),
+              section == .sonosFavorites,
+              !isLoadingFavorites,
+              !sonosFavorites.isEmpty else {
+            return
+        }
+
+        let favorite = sonosFavorites[indexPath.row]
+        let debugVC = FavoriteDebugViewController(
+            favorite: favorite,
+            index: indexPath.row,
+            speaker: speaker,
+            service: service
+        )
+        navigationController?.pushViewController(debugVC, animated: true)
     }
 
     private func handlePlaybackResult(_ result: Result<Void, LocalHTTPError>) {

@@ -315,6 +315,9 @@ final class SonosService {
                         title: favorite.title,
                         completion: completion
                     )
+                case .success(.instantPlay(let envelope)):
+                    DebugLog.shared.log("Sonos resolved instantPlay favorite (region \(envelope.region ?? "unknown"))")
+                    self.playInstantPlayFavorite(on: speakerIP, envelope: envelope, completion: completion)
                 }
             }
         }
@@ -324,6 +327,13 @@ final class SonosService {
         case track(uri: String, metadata: String)
         case spotifyPlaylist(ParsedSpotifyURI)
         case containerURI(String)
+        case instantPlay(SonosInstantPlayEnvelope)
+    }
+
+    private struct SonosInstantPlayEnvelope {
+        let uri: String
+        let queueMetadata: String
+        let region: String?
     }
 
     private func resolveEmptyFavorite(
@@ -418,6 +428,9 @@ final class SonosService {
         _ resultXML: String,
         objectID: String
     ) -> ResolvedFavoritePlayback? {
+        if let envelope = extractInstantPlayEnvelope(fromText: resultXML) {
+            return .instantPlay(envelope)
+        }
         if let parsed = extractPlaylistIDFromFavorite(uri: "", metadata: resultXML, objectID: objectID) {
             return .spotifyPlaylist(parsed)
         }
@@ -442,6 +455,8 @@ final class SonosService {
         let decoded = decodeHTMLEntities(xml)
         if decoded.contains("playlistContainer") { return true }
         if decoded.contains("x-rincon-cpcontainer:") && decoded.contains("playlist") { return true }
+        if decoded.contains("instantPlay") && decoded.contains("cpcontainer") { return true }
+        if decoded.contains("sonos-favorite") && decoded.contains("cpcontainer") { return true }
         if decoded.contains("<container") && !decoded.contains("musicTrack") { return true }
         return false
     }
@@ -451,6 +466,14 @@ final class SonosService {
         favorite: SonosFavorite,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
+        if let envelope = extractInstantPlayEnvelope(from: favorite) {
+            DebugLog.shared.log("Sonos favorite instantPlay with resMD (region \(envelope.region ?? "unknown"))")
+            playInstantPlayFavorite(on: speakerIP, envelope: envelope, completion: completion)
+            return
+        }
+
+        let spotifyRegions = spotifyRegions(for: favorite)
+
         let startParsed = { [weak self] (parsed: ParsedSpotifyURI) in
             guard let self = self else { return }
             DebugLog.shared.log("Sonos favorite playlist using Spotify ID \(parsed.id)")
@@ -458,7 +481,7 @@ final class SonosService {
                 on: speakerIP,
                 title: favorite.title,
                 parsed: parsed,
-                regions: ["2311", "3079"],
+                regions: spotifyRegions,
                 regionIndex: 0,
                 variantIndex: 0,
                 completion: completion
@@ -913,8 +936,109 @@ final class SonosService {
         }
         let decoded = decodeHTMLEntities(metadata)
         if decoded.contains("playlistContainer") { return true }
+        if decoded.contains("instantPlay") && decoded.contains("cpcontainer") { return true }
+        if decoded.contains("sonos-favorite") && uri.contains("cpcontainer") { return true }
         if decoded.contains("<container") && !decoded.contains("musicTrack") { return true }
         return false
+    }
+
+    private func spotifyRegions(for favorite: SonosFavorite) -> [String] {
+        if let region = extractInstantPlayEnvelope(from: favorite)?.region {
+            return region == "3079" ? ["3079", "2311"] : ["2311", "3079"]
+        }
+        return ["2311", "3079"]
+    }
+
+    private func extractInstantPlayEnvelope(from favorite: SonosFavorite) -> SonosInstantPlayEnvelope? {
+        let texts = [
+            favorite.rawBody,
+            decodeHTMLEntities(favorite.metadata),
+            favorite.uri
+        ]
+        for text in texts where !text.isEmpty {
+            if let envelope = extractInstantPlayEnvelope(fromText: text) {
+                return envelope
+            }
+        }
+        return nil
+    }
+
+    private func extractInstantPlayEnvelope(fromText text: String) -> SonosInstantPlayEnvelope? {
+        let decoded = fullyDecodeHTMLEntities(text)
+        guard decoded.contains("cpcontainer") else { return nil }
+        guard let resMD = extractResMD(from: decoded) else { return nil }
+
+        let uri = extractResURI(from: decoded)
+            .map(decodeHTMLEntities)
+            ?? firstRegexMatch("x-rincon-cpcontainer:[^<\\s\"]+", in: decoded).map(decodeHTMLEntities)
+        guard let uri = uri, uri.contains("cpcontainer") else { return nil }
+
+        let cdUdn = extractCdUdn(from: resMD)
+        let region = cdUdn.flatMap { extractSpotifyRegion(from: $0) }
+        return SonosInstantPlayEnvelope(
+            uri: uri,
+            queueMetadata: xmlEscape(resMD),
+            region: region
+        )
+    }
+
+    private func playInstantPlayFavorite(
+        on speakerIP: String,
+        envelope: SonosInstantPlayEnvelope,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        addURIToQueue(
+            on: speakerIP,
+            uri: envelope.uri,
+            metadata: envelope.queueMetadata,
+            label: "instantPlay-resMD"
+        ) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let trackNumber):
+                self.performPlay(on: speakerIP) { playResult in
+                    if case .success = playResult {
+                        completion(.success(()))
+                        return
+                    }
+                    self.playFromQueueTrack(on: speakerIP, trackNumber: trackNumber, completion: completion)
+                }
+            }
+        }
+    }
+
+    private func extractResMD(from text: String) -> String? {
+        let decoded = fullyDecodeHTMLEntities(text)
+        guard let raw = extractXMLTagContent(tag: "r:resMD", from: decoded) else { return nil }
+        let didl = fullyDecodeHTMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard didl.contains("DIDL-Lite") else { return nil }
+        return didl
+    }
+
+    private func extractCdUdn(from didl: String) -> String? {
+        if let udn = firstCaptureGroup(pattern: "(SA_RINCON\\d+_X_#Svc\\d+-0-Token)", in: didl) {
+            return udn
+        }
+        if let content = extractXMLTagContent(tag: "desc", from: didl), content.contains("SA_RINCON") {
+            return content
+        }
+        return nil
+    }
+
+    private func extractSpotifyRegion(from cdUdn: String) -> String? {
+        return firstCaptureGroup(pattern: "SA_RINCON(\\d+)", in: cdUdn)
+    }
+
+    private func fullyDecodeHTMLEntities(_ value: String) -> String {
+        var current = value
+        for _ in 0..<5 {
+            let next = decodeHTMLEntities(current)
+            if next == current { break }
+            current = next
+        }
+        return current
     }
 
     private func addURIToQueue(
