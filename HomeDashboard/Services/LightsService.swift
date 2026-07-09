@@ -166,7 +166,7 @@ final class LightsService {
             completion(.failure(.invalidURL))
             return
         }
-        client.post(urlString: url.absoluteString, body: body, completion: completion)
+        client.put(urlString: url.absoluteString, body: body, completion: completion)
     }
 
     private func hueURL(bridgeIP: String, username: String, path: String) -> URL? {

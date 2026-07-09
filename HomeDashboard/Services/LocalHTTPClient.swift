@@ -100,7 +100,7 @@ final class LocalHTTPClient {
             return
         }
 
-        let task = session.dataTask(with: request) { _, response, error in
+        let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(.transport(error)))
                 return
@@ -116,8 +116,31 @@ final class LocalHTTPClient {
                 return
             }
 
+            if let data = data, let hueError = Self.hueError(from: data) {
+                completion(.failure(hueError))
+                return
+            }
+
             completion(.success(()))
         }
         task.resume()
+    }
+
+    private static func hueError(from data: Data) -> LocalHTTPError? {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data, options: []),
+            let errors = json as? [[String: Any]],
+            let first = errors.first,
+            let error = first["error"] as? [String: Any],
+            let description = error["description"] as? String
+        else {
+            return nil
+        }
+
+        return .transport(NSError(
+            domain: "HueBridge",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: description]
+        ))
     }
 }

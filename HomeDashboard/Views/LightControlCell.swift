@@ -90,6 +90,10 @@ final class LightControlCell: UITableViewCell {
         onToggle?()
     }
 
+    func setToggle(isOn: Bool, animated: Bool = true) {
+        toggleSwitch.setOn(isOn, animated: animated)
+    }
+
     @objc private func sliderChanged() {
         onBrightnessChanged?(Int(slider.value))
     }

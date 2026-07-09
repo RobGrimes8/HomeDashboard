@@ -172,14 +172,16 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     private func configureCell(_ cell: LightControlCell, with device: SmartDevice) {
         cell.configure(with: device)
-        cell.onToggle = { [weak self] in
-            self?.service.toggleDevice(device) { result in
+        cell.onToggle = { [weak self, weak cell] in
+            guard let self = self, let cell = cell else { return }
+            self.service.toggleDevice(device) { result in
                 DispatchQueue.main.async {
                     switch result {
                     case .success:
-                        self?.service.refreshNow()
+                        self.service.refreshNow()
                     case .failure(let error):
-                        self?.presentAlert(title: "Could Not Toggle", message: error.localizedDescription)
+                        cell.setToggle(isOn: device.isOn)
+                        self.presentAlert(title: "Could Not Toggle", message: error.localizedDescription)
                     }
                 }
             }
