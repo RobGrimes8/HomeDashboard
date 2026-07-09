@@ -124,9 +124,7 @@ final class SonosService {
     }
 
     func play(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
-            self?.performPlay(on: coordinatorIP, completion: completion)
-        }
+        performPlay(on: speakerIP, completion: completion)
     }
 
     private func performPlay(on ip: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
@@ -144,8 +142,7 @@ final class SonosService {
               </s:Body>
             </s:Envelope>
             """,
-            completion: completion,
-            skipCoordinatorResolution: true
+            completion: completion
         )
     }
 
@@ -222,31 +219,31 @@ final class SonosService {
     }
 
     func playFavorite(on speakerIP: String, favorite: SonosFavorite, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+        DebugLog.shared.log("Play Sonos favorite: \(favorite.title)")
+
+        let startPlayback = { [weak self] (uri: String, metadata: String) in
             guard let self = self else { return }
-            DebugLog.shared.log("Play Sonos favorite: \(favorite.title)")
+            self.playFavoriteURI(
+                on: speakerIP,
+                uri: uri,
+                metadata: metadata,
+                title: favorite.title,
+                completion: completion
+            )
+        }
 
-            let startPlayback = { (uri: String, metadata: String) in
-                self.playFavoriteURI(
-                    on: coordinatorIP,
-                    uri: uri,
-                    metadata: metadata,
-                    title: favorite.title,
-                    completion: completion
-                )
-            }
+        if !favorite.uri.isEmpty {
+            startPlayback(favorite.uri, favorite.metadata)
+            return
+        }
 
-            if !favorite.uri.isEmpty {
-                startPlayback(favorite.uri, favorite.metadata)
-                return
-            }
+        guard let objectID = favorite.objectID else {
+            completion(.failure(.decodingFailed))
+            return
+        }
 
-            guard let objectID = favorite.objectID else {
-                completion(.failure(.decodingFailed))
-                return
-            }
-
-            self.resolveFavoritePlayback(at: coordinatorIP, objectID: objectID) { result in
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.resolveFavoritePlayback(at: coordinatorIP, objectID: objectID) { result in
                 switch result {
                 case .failure(let error):
                     completion(.failure(error))
@@ -269,28 +266,22 @@ final class SonosService {
             return
         }
 
-        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+        self.playSpotifyFromFavorites(on: speakerIP, playlistID: parsed.id) { [weak self] favoriteResult in
             guard let self = self else { return }
-            if coordinatorIP != speakerIP {
-                DebugLog.shared.log("Spotify playlist via coordinator \(coordinatorIP) (speaker \(speakerIP))")
-            }
-
-            self.playSpotifyFromFavorites(on: coordinatorIP, playlistID: parsed.id) { favoriteResult in
-                switch favoriteResult {
-                case .success:
-                    completion(.success(()))
-                case .failure(let favoriteError):
-                    DebugLog.shared.log("Sonos favorites miss for \(parsed.id): \(favoriteError.localizedDescription)")
-                    self.attemptSpotifyPlaylistPlayback(
-                        on: coordinatorIP,
-                        title: title,
-                        parsed: parsed,
-                        regions: ["2311", "3079"],
-                        regionIndex: 0,
-                        variantIndex: 0,
-                        completion: completion
-                    )
-                }
+            switch favoriteResult {
+            case .success:
+                completion(.success(()))
+            case .failure(let favoriteError):
+                DebugLog.shared.log("Sonos favorites miss for \(parsed.id): \(favoriteError.localizedDescription)")
+                self.attemptSpotifyPlaylistPlayback(
+                    on: speakerIP,
+                    title: title,
+                    parsed: parsed,
+                    regions: ["2311", "3079"],
+                    regionIndex: 0,
+                    variantIndex: 0,
+                    completion: completion
+                )
             }
         }
     }
@@ -300,8 +291,9 @@ final class SonosService {
         playlistID: String,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
-        fetchSonosFavorites(at: speakerIP) { [weak self] items in
-            guard let self = self else { return }
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.fetchSonosFavorites(at: coordinatorIP) { items in
+                guard let self = self else { return }
             let normalizedID = playlistID.lowercased()
             guard
                 let favorite = items.first(where: { item in
@@ -334,13 +326,14 @@ final class SonosService {
                 return
             }
 
-            self.resolveFavoritePlayback(at: speakerIP, objectID: objectID) { result in
+            self.resolveFavoritePlayback(at: coordinatorIP, objectID: objectID) { result in
                 switch result {
                 case .failure(let error):
                     completion(.failure(error))
                 case .success(let resolved):
                     startPlayback(resolved.uri, resolved.metadata)
                 }
+            }
             }
         }
     }
@@ -426,7 +419,7 @@ final class SonosService {
             <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><\(tagName) id="\(itemID)" parentID="-1" restricted="true">\(body)</\(tagName)></DIDL-Lite>
             """
             return SonosFavorite(
-                title: title,
+                title: decodeHTMLEntities(title),
                 uri: uri,
                 metadata: xmlEscape(metadataDIDL),
                 objectID: uri.isEmpty ? objectID : nil
@@ -459,9 +452,8 @@ final class SonosService {
             """
 
             DebugLog.shared.log("Sonos favorite playlist queue: \(title) → \(uri)")
-            performSOAP(
-                ip: speakerIP,
-                controlPath: "/MediaRenderer/AVTransport/Control",
+            performAVTransportSOAP(
+                on: speakerIP,
                 action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
                 body: body
             ) { [weak self] result in
@@ -477,17 +469,19 @@ final class SonosService {
             return
         }
 
-        setSpotifyTransport(
-            on: speakerIP,
-            uri: uri,
-            metadata: metadata,
-            label: "favorite"
-        ) { [weak self] result in
-            switch result {
-            case .failure(let error):
-                completion(.failure(error))
-            case .success:
-                self?.performPlay(on: speakerIP, completion: completion)
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.setSpotifyTransport(
+                on: coordinatorIP,
+                uri: uri,
+                metadata: metadata,
+                label: "favorite"
+            ) { result in
+                switch result {
+                case .failure(let error):
+                    completion(.failure(error))
+                case .success:
+                    self?.performPlay(on: speakerIP, completion: completion)
+                }
             }
         }
     }
@@ -875,9 +869,8 @@ final class SonosService {
         """
 
         DebugLog.shared.log("Spotify AddURIToQueue [\(request.label)] \(request.queueURI) (\(request.cdUdn))")
-        performSOAP(
-            ip: speakerIP,
-            controlPath: "/MediaRenderer/AVTransport/Control",
+        performAVTransportSOAP(
+            on: speakerIP,
             action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
             body: body
         ) { result in
@@ -897,32 +890,34 @@ final class SonosService {
         trackNumber: Int,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
-        fetchDeviceUDN(at: speakerIP) { [weak self] udn in
-            guard let self = self, let udn = udn else {
-                completion(.failure(.decodingFailed))
-                return
-            }
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            guard let self = self else { return }
+            self.fetchDeviceUDN(at: coordinatorIP) { udn in
+                guard let queueID = self.normalizedQueueUDN(from: udn) else {
+                    completion(.failure(.decodingFailed))
+                    return
+                }
 
-            let queueURI = "x-rincon-queue:\(udn)#0"
-            let body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <CurrentURI>\(queueURI)</CurrentURI>
-                  <CurrentURIMetaData></CurrentURIMetaData>
-                </u:SetAVTransportURI>
-              </s:Body>
-            </s:Envelope>
-            """
+                let queueURI = "x-rincon-queue:\(queueID)#0"
+                let body = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                  <s:Body>
+                    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                      <InstanceID>0</InstanceID>
+                      <CurrentURI>\(queueURI)</CurrentURI>
+                      <CurrentURIMetaData></CurrentURIMetaData>
+                    </u:SetAVTransportURI>
+                  </s:Body>
+                </s:Envelope>
+                """
 
-            DebugLog.shared.log("Spotify play queue \(queueURI) track \(trackNumber)")
-            self.avTransportAction(
-                ip: speakerIP,
-                action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
-                body: body,
-                completion: { result in
+                DebugLog.shared.log("Spotify play queue \(queueURI) track \(trackNumber) via \(coordinatorIP)")
+                self.performAVTransportSOAP(
+                    on: speakerIP,
+                    action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+                    body: body
+                ) { result in
                     switch result {
                     case .failure(let error):
                         completion(.failure(error))
@@ -936,9 +931,8 @@ final class SonosService {
                             }
                         }
                     }
-                },
-                skipCoordinatorResolution: true
-            )
+                }
+            }
         }
     }
 
@@ -964,8 +958,7 @@ final class SonosService {
             ip: speakerIP,
             action: "urn:schemas-upnp-org:service:AVTransport:1#Seek",
             body: body,
-            completion: completion,
-            skipCoordinatorResolution: true
+            completion: completion
         )
     }
 
@@ -1210,6 +1203,33 @@ final class SonosService {
         }
     }
 
+    private func performAVTransportSOAP(
+        on speakerIP: String,
+        action: String,
+        body: String,
+        completion: @escaping (Result<String, LocalHTTPError>) -> Void
+    ) {
+        withCoordinatorIP(for: speakerIP) { coordinatorIP in
+            self.performSOAP(
+                ip: coordinatorIP,
+                controlPath: "/MediaRenderer/AVTransport/Control",
+                action: action,
+                body: body,
+                completion: completion
+            )
+        }
+    }
+
+    private func normalizedQueueUDN(from udn: String?) -> String? {
+        guard var value = udn?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("uuid:") {
+            value = String(value.dropFirst(5))
+        }
+        return value
+    }
+
     private func withCoordinatorIP(for ip: String, completion: @escaping (String) -> Void) {
         fetchDeviceUUID(at: ip) { [weak self] uuid in
             guard let self = self else { return }
@@ -1220,8 +1240,10 @@ final class SonosService {
 
             self.fetchZoneGroupState(at: ip) { zoneGroupState in
                 if let zoneGroupState = zoneGroupState,
-                   let coordinatorIP = self.coordinatorIP(for: uuid, in: zoneGroupState),
-                   coordinatorIP != ip {
+                   let coordinatorIP = self.coordinatorIP(for: uuid, in: zoneGroupState) {
+                    if coordinatorIP != ip {
+                        DebugLog.shared.log("Sonos coordinator \(coordinatorIP) for speaker \(ip)")
+                    }
                     completion(coordinatorIP)
                 } else {
                     completion(ip)
@@ -1357,11 +1379,39 @@ final class SonosService {
     }
 
     private func decodeHTMLEntities(_ string: String) -> String {
-        return string
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&amp;", with: "&")
+        var result = string
+        let namedEntities = [
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&quot;", "\""),
+            ("&apos;", "'"),
+            ("&#39;", "'"),
+            ("&#x27;", "'"),
+            ("&#x2019;", "'"),
+            ("&rsquo;", "'")
+        ]
+        for (entity, character) in namedEntities {
+            result = result.replacingOccurrences(of: entity, with: character)
+        }
+
+        if let decimalRegex = try? NSRegularExpression(pattern: "&#(\\d+);") {
+            let range = NSRange(result.startIndex..., in: result)
+            let matches = decimalRegex.matches(in: result, options: [], range: range).reversed()
+            for match in matches {
+                guard
+                    let codeRange = Range(match.range(at: 1), in: result),
+                    let codePoint = UInt32(result[codeRange]),
+                    let scalar = UnicodeScalar(codePoint)
+                else {
+                    continue
+                }
+                if let fullRange = Range(match.range, in: result) {
+                    result.replaceSubrange(fullRange, with: String(Character(scalar)))
+                }
+            }
+        }
+
+        return result.replacingOccurrences(of: "&amp;", with: "&")
     }
 
     private func soapFaultMessage(from xml: String) -> String? {
