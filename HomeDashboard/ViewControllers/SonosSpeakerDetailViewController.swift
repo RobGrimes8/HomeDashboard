@@ -204,7 +204,11 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
                         self?.service.refreshNow()
                     }
                 case .failure(let error):
-                    self?.presentAlert(title: "Could Not Play Playlist", message: error.localizedDescription)
+                    let hint = "Check Spotify is linked in the Sonos app (Settings → Services) and you have Spotify Premium. Enable Debug Log in Settings for details."
+                    self?.presentAlert(
+                        title: "Could Not Play Playlist",
+                        message: "\(error.localizedDescription)\n\n\(hint)"
+                    )
                 }
             }
         }

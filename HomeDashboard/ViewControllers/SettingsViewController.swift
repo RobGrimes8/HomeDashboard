@@ -423,9 +423,11 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         3. Link Spotify in the Sonos app first (Settings → Services).
 
         Spotify playlists:
-        1. One per line: Name=spotify:playlist:YOUR_ID
-        2. Or paste a share URL after the equals sign.
-        3. Tap a speaker on the Sonos tab, then pick a playlist.
+        1. Link Spotify in the Sonos app first (Settings → Services).
+        2. Spotify Premium is required for Sonos playback.
+        3. One per line: Name=spotify:playlist:YOUR_ID
+        4. Or paste a share URL after the equals sign.
+        5. Tap a speaker on the Sonos tab, then pick a playlist.
 
         Light groups:
         1. Hue rooms from your bridge appear automatically in Lights → Groups.
