@@ -225,17 +225,33 @@ final class SonosService {
         withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
             guard let self = self else { return }
             DebugLog.shared.log("Play Sonos favorite: \(favorite.title)")
-            self.setSpotifyTransport(
-                on: coordinatorIP,
-                uri: favorite.uri,
-                metadata: favorite.metadata,
-                label: "favorite"
-            ) { result in
+
+            let startPlayback = { (uri: String, metadata: String) in
+                self.playFavoriteURI(
+                    on: coordinatorIP,
+                    uri: uri,
+                    metadata: metadata,
+                    title: favorite.title,
+                    completion: completion
+                )
+            }
+
+            if !favorite.uri.isEmpty {
+                startPlayback(favorite.uri, favorite.metadata)
+                return
+            }
+
+            guard let objectID = favorite.objectID else {
+                completion(.failure(.decodingFailed))
+                return
+            }
+
+            self.resolveFavoritePlayback(at: coordinatorIP, objectID: objectID) { result in
                 switch result {
                 case .failure(let error):
                     completion(.failure(error))
-                case .success:
-                    self.performPlay(on: coordinatorIP, completion: completion)
+                case .success(let resolved):
+                    startPlayback(resolved.uri, resolved.metadata)
                 }
             }
         }
@@ -297,18 +313,33 @@ final class SonosService {
                 return
             }
 
-            DebugLog.shared.log("Spotify favorite match: \(favorite.title) → \(favorite.uri)")
-            self.setSpotifyTransport(
-                on: speakerIP,
-                uri: favorite.uri,
-                metadata: favorite.metadata,
-                label: "favorite"
-            ) { result in
+            DebugLog.shared.log("Spotify favorite match: \(favorite.title) → \(favorite.uri.isEmpty ? (favorite.objectID ?? "unresolved") : favorite.uri)")
+            let startPlayback = { (uri: String, metadata: String) in
+                self.playFavoriteURI(
+                    on: speakerIP,
+                    uri: uri,
+                    metadata: metadata,
+                    title: favorite.title,
+                    completion: completion
+                )
+            }
+
+            if !favorite.uri.isEmpty {
+                startPlayback(favorite.uri, favorite.metadata)
+                return
+            }
+
+            guard let objectID = favorite.objectID else {
+                completion(.failure(.decodingFailed))
+                return
+            }
+
+            self.resolveFavoritePlayback(at: speakerIP, objectID: objectID) { result in
                 switch result {
                 case .failure(let error):
                     completion(.failure(error))
-                case .success:
-                    self.performPlay(on: speakerIP, completion: completion)
+                case .success(let resolved):
+                    startPlayback(resolved.uri, resolved.metadata)
                 }
             }
         }
@@ -352,14 +383,27 @@ final class SonosService {
 
     private func parseSonosFavoriteItems(from resultXML: String) -> [SonosFavorite] {
         let decoded = decodeHTMLEntities(resultXML)
-        let itemPattern = "<item[^>]*id=\"([^\"]+)\"[^>]*>(.*?)</item>"
-        guard let regex = try? NSRegularExpression(pattern: itemPattern, options: [.dotMatchesLineSeparators]) else {
+        var favorites = parseDIDLFavorites(from: decoded, tagName: "item")
+        favorites.append(contentsOf: parseDIDLFavorites(from: decoded, tagName: "container"))
+
+        var seen = Set<String>()
+        return favorites.filter { favorite in
+            let key = favorite.objectID ?? favorite.uri
+            guard !key.isEmpty else { return false }
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
+    private func parseDIDLFavorites(from decoded: String, tagName: String) -> [SonosFavorite] {
+        let pattern = "<\(tagName)[^>]*id=\"([^\"]+)\"[^>]*>(.*?)</\(tagName)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
             return []
         }
 
         let range = NSRange(decoded.startIndex..., in: decoded)
-        let matches = regex.matches(in: decoded, options: [], range: range)
-        return matches.compactMap { match in
+        return regex.matches(in: decoded, options: [], range: range).compactMap { match in
             guard
                 let itemIDRange = Range(match.range(at: 1), in: decoded),
                 let bodyRange = Range(match.range(at: 2), in: decoded)
@@ -369,20 +413,230 @@ final class SonosService {
 
             let itemID = String(decoded[itemIDRange])
             let body = String(decoded[bodyRange])
-            guard let uri = extractResURI(from: body), !uri.isEmpty else {
-                return nil
-            }
+            let openingTag = extractOpeningTag(for: tagName, itemID: itemID, in: decoded) ?? ""
+            let title = extractDIDLTitle(from: body)
+                ?? extractTitleAttribute(from: openingTag)
+                ?? humanizedFavoriteTitle(itemID: itemID, body: body)
+            let uri = extractPlaybackURI(from: body, itemID: itemID) ?? ""
+            let objectID = itemID.hasPrefix("FV:2/") ? itemID : nil
 
-            let title = extractXMLValue(named: "title", from: body) ?? itemID
+            guard !uri.isEmpty || objectID != nil else { return nil }
+
             let metadataDIDL = """
-            <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="\(itemID)" parentID="-1" restricted="true">\(body)</item></DIDL-Lite>
+            <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><\(tagName) id="\(itemID)" parentID="-1" restricted="true">\(body)</\(tagName)></DIDL-Lite>
             """
             return SonosFavorite(
                 title: title,
                 uri: uri,
-                metadata: xmlEscape(metadataDIDL)
+                metadata: xmlEscape(metadataDIDL),
+                objectID: uri.isEmpty ? objectID : nil
             )
         }
+    }
+
+    private func playFavoriteURI(
+        on speakerIP: String,
+        uri: String,
+        metadata: String,
+        title: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        if uri.contains("cpcontainer") || metadata.contains("playlistContainer") {
+            let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
+            let body = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+              <s:Body>
+                <u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                  <InstanceID>0</InstanceID>
+                  <EnqueuedURI>\(escapedURI)</EnqueuedURI>
+                  <EnqueuedURIMetaData>\(metadata)</EnqueuedURIMetaData>
+                  <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
+                  <EnqueueAsNext>false</EnqueueAsNext>
+                </u:AddURIToQueue>
+              </s:Body>
+            </s:Envelope>
+            """
+
+            DebugLog.shared.log("Sonos favorite playlist queue: \(title) → \(uri)")
+            performSOAP(
+                ip: speakerIP,
+                controlPath: "/MediaRenderer/AVTransport/Control",
+                action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
+                body: body
+            ) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .failure(let error):
+                    completion(.failure(error))
+                case .success(let xml):
+                    let trackNumber = Int(self.extractXMLValue(named: "FirstTrackNumberEnqueued", from: xml) ?? "1") ?? 1
+                    self.playFromQueueTrack(on: speakerIP, trackNumber: max(trackNumber, 1), completion: completion)
+                }
+            }
+            return
+        }
+
+        setSpotifyTransport(
+            on: speakerIP,
+            uri: uri,
+            metadata: metadata,
+            label: "favorite"
+        ) { [weak self] result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success:
+                self?.performPlay(on: speakerIP, completion: completion)
+            }
+        }
+    }
+
+    private func resolveFavoritePlayback(
+        at ip: String,
+        objectID: String,
+        completion: @escaping (Result<(uri: String, metadata: String), LocalHTTPError>) -> Void
+    ) {
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+              <ObjectID>\(objectID)</ObjectID>
+              <BrowseFlag>BrowseMetadata</BrowseFlag>
+              <Filter>*</Filter>
+              <StartingIndex>0</StartingIndex>
+              <RequestedCount>1</RequestedCount>
+              <SortCriteria></SortCriteria>
+            </u:Browse>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        performSOAP(
+            ip: ip,
+            controlPath: "/MediaServer/ContentDirectory/Control",
+            action: "urn:schemas-upnp-org:service:ContentDirectory:1#Browse",
+            body: body
+        ) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let xml):
+                guard
+                    let resultXML = self.extractXMLValue(named: "Result", from: xml),
+                    let favorite = self.parseSonosFavoriteItems(from: resultXML).first(where: { !$0.uri.isEmpty })
+                else {
+                    completion(.failure(.decodingFailed))
+                    return
+                }
+                completion(.success((favorite.uri, favorite.metadata)))
+            }
+        }
+    }
+
+    private func extractDIDLTitle(from xml: String) -> String? {
+        let tags = ["dc:title", "title", "r:shortTitle"]
+        for tag in tags {
+            if let title = extractXMLTagContent(tag: tag, from: xml), !title.isEmpty {
+                return decodeHTMLEntities(title)
+            }
+        }
+        return nil
+    }
+
+    private func extractXMLTagContent(tag: String, from xml: String) -> String? {
+        let escapedTag = NSRegularExpression.escapedPattern(for: tag)
+        let pattern = "<\(escapedTag)[^>]*>(.*?)</\(escapedTag)>"
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+            let match = regex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
+            let range = Range(match.range(at: 1), in: xml)
+        else {
+            return nil
+        }
+
+        let value = String(xml[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func extractTitleAttribute(from openingTag: String) -> String? {
+        let pattern = "title=\"([^\"]+)\""
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern),
+            let match = regex.firstMatch(in: openingTag, options: [], range: NSRange(openingTag.startIndex..., in: openingTag)),
+            let range = Range(match.range(at: 1), in: openingTag)
+        else {
+            return nil
+        }
+
+        let value = String(openingTag[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : decodeHTMLEntities(value)
+    }
+
+    private func extractOpeningTag(for tagName: String, itemID: String, in decoded: String) -> String? {
+        let escapedID = NSRegularExpression.escapedPattern(for: itemID)
+        let pattern = "<\(tagName)[^>]*id=\"\(escapedID)\"[^>]*>"
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern),
+            let match = regex.firstMatch(in: decoded, options: [], range: NSRange(decoded.startIndex..., in: decoded)),
+            let range = Range(match.range, in: decoded)
+        else {
+            return nil
+        }
+        return String(decoded[range])
+    }
+
+    private func humanizedFavoriteTitle(itemID: String, body: String) -> String {
+        if body.contains("playlistContainer") { return "Spotify Playlist" }
+        if body.contains("musicTrack") { return "Spotify Track" }
+        if body.contains("audioBroadcast") { return "Radio Station" }
+        return itemID
+    }
+
+    private func extractPlaybackURI(from body: String, itemID: String) -> String? {
+        if let res = extractResURI(from: body) {
+            return decodeHTMLEntities(res)
+        }
+        if let rUri = extractXMLTagContent(tag: "r:uri", from: body), !rUri.isEmpty {
+            return decodeHTMLEntities(rUri)
+        }
+        if let rUri = extractXMLValue(named: "uri", from: body), !rUri.isEmpty {
+            return decodeHTMLEntities(rUri)
+        }
+
+        let patterns = [
+            "x-rincon-cpcontainer:[^<\\s\"]+",
+            "x-sonos-spotify:[^<\\s\"]+",
+            "x-sonosapi-stream:[^<\\s\"]+",
+            "x-sonosapi-radio:[^<\\s\"]+",
+            "x-sonos-http:[^<\\s\"]+"
+        ]
+        for pattern in patterns {
+            if let uri = firstRegexMatch(pattern, in: body) {
+                return decodeHTMLEntities(uri)
+            }
+        }
+
+        if !itemID.hasPrefix("FV:2/") {
+            if itemID.contains("playlist") || itemID.contains("spotify") || itemID.hasPrefix("1006206c") || itemID.hasPrefix("0006206c") {
+                return "x-rincon-cpcontainer:\(itemID)"
+            }
+        }
+
+        return nil
+    }
+
+    private func firstRegexMatch(_ pattern: String, in text: String) -> String? {
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern),
+            let match = regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)),
+            let range = Range(match.range, in: text)
+        else {
+            return nil
+        }
+        return String(text[range])
     }
 
     private func extractResURI(from xml: String) -> String? {

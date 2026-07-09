@@ -47,6 +47,8 @@ struct SonosFavorite: Equatable {
     let title: String
     let uri: String
     let metadata: String
+    /// Sonos favorite reference (e.g. FV:2/3) when URI must be resolved via Browse.
+    let objectID: String?
 }
 
 struct DashboardSnapshot {
