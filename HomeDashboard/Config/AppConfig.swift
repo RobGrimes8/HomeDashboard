@@ -18,12 +18,16 @@ struct AppConfig: Codable {
     )
 
     static func load() -> AppConfig {
+        if let saved = loadFromDocuments() {
+            return saved
+        }
+
         guard
             let url = Bundle.main.url(forResource: "Config", withExtension: "json"),
             let data = try? Data(contentsOf: url),
             let config = try? JSONDecoder().decode(AppConfig.self, from: data)
         else {
-            return loadFromDocuments() ?? .default
+            return .default
         }
         return config
     }
