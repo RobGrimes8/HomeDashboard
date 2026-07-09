@@ -9,7 +9,7 @@ Built with **UIKit** (not SwiftUI) so it runs on iOS 12.5.x.
 | Item | Details |
 |------|---------|
 | Device | iPad mini 2 (or any iPad on iOS 12) |
-| Mac | Xcode 15+ (type `12.0` as deployment target if not in dropdown) |
+| Mac | Xcode 13.2.1+ on the build Mac (this project targets Xcode 13 format); newer Xcode on your dev Mac is fine for editing |
 | Apple ID | Free Personal Team for 7-day sideloading |
 | Network | iPad and devices on the same LAN |
 
