@@ -40,10 +40,22 @@ final class LightsService {
     }
 
     private func parseLights(from data: Data) -> Result<[SmartDevice], LocalHTTPError> {
-        guard
-            let json = try? JSONSerialization.jsonObject(with: data, options: []),
-            let dictionary = json as? [String: Any]
-        else {
+        guard let json = try? JSONSerialization.jsonObject(with: data, options: []) else {
+            return .failure(.decodingFailed)
+        }
+
+        if let errors = json as? [[String: Any]],
+           let first = errors.first,
+           let error = first["error"] as? [String: Any],
+           let description = error["description"] as? String {
+            return .failure(.transport(NSError(
+                domain: "HueBridge",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: description]
+            )))
+        }
+
+        guard let dictionary = json as? [String: Any] else {
             return .failure(.decodingFailed)
         }
 

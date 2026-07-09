@@ -66,13 +66,20 @@ final class LightControlCell: UITableViewCell {
         toggleSwitch.isEnabled = light.isReachable
     }
 
-    func configurePlaceholder() {
-        nameLabel.text = "Configure Hue in Settings"
-        detailLabel.text = "Enter bridge IP and API username"
+    func configurePlaceholder(title: String, detail: String) {
+        nameLabel.text = title
+        detailLabel.text = detail
         toggleSwitch.isOn = false
         slider.value = 0
         slider.isEnabled = false
         toggleSwitch.isEnabled = false
+    }
+
+    func configurePlaceholder() {
+        configurePlaceholder(
+            title: "Configure Hue in Settings",
+            detail: "Enter bridge IP and API username"
+        )
     }
 
     @objc private func toggleChanged() {

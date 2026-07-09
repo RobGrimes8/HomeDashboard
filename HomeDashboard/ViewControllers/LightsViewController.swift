@@ -4,6 +4,7 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     private let service = DashboardService(config: AppConfig.load())
     private var lights: [SmartDevice] = []
+    private var statusMessage: String?
 
     private let tableView = UITableView(frame: .zero, style: .plain)
 
@@ -53,6 +54,17 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     func dashboardService(_ service: DashboardService, didUpdate snapshot: DashboardSnapshot) {
         lights = snapshot.lights
+        if let error = snapshot.errorMessage?
+            .split(separator: "\n")
+            .first(where: { $0.hasPrefix("Lights:") }) {
+            statusMessage = String(error.dropFirst("Lights: ".count))
+        } else if lights.isEmpty {
+            statusMessage = AppConfig.load().isHueConfigured
+                ? "No lights returned from the bridge. Tap refresh."
+                : nil
+        } else {
+            statusMessage = nil
+        }
         tableView.reloadData()
     }
 
@@ -74,7 +86,15 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
         }
 
         if lights.isEmpty {
-            cell.configurePlaceholder()
+            let config = AppConfig.load()
+            if config.isHueConfigured {
+                cell.configurePlaceholder(
+                    title: "No lights found",
+                    detail: statusMessage ?? "Check bridge IP and username, then tap refresh."
+                )
+            } else {
+                cell.configurePlaceholder()
+            }
             cell.onToggle = nil
             cell.onBrightnessChanged = nil
         } else {

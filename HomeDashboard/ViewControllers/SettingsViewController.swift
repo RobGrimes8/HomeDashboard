@@ -5,6 +5,11 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     private var config = AppConfig.load()
     private var sonosIPsText = AppConfig.load().sonosSpeakerIPs.joined(separator: ", ")
 
+    private var hueIPField: UITextField?
+    private var hueUserField: UITextField?
+    private var sonosIPsField: UITextField?
+    private var refreshField: UITextField?
+
     private enum Row: Int, CaseIterable {
         case hueIP
         case hueUser
@@ -40,6 +45,13 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         ])
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        config = AppConfig.load()
+        sonosIPsText = config.sonosSpeakerIPs.joined(separator: ", ")
+        tableView.reloadData()
+    }
+
     func numberOfSections(in tableView: UITableView) -> Int { 1 }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -65,16 +77,24 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         switch row {
         case .hueIP:
             cell.textLabel?.text = "Hue Bridge IP"
-            cell.accessoryView = makeField(text: config.hueBridgeIP, tag: 1, keyboard: .decimalPad)
+            let field = makeField(text: config.hueBridgeIP, tag: 1, keyboard: .decimalPad)
+            hueIPField = field
+            cell.accessoryView = field
         case .hueUser:
             cell.textLabel?.text = "Hue API Username"
-            cell.accessoryView = makeField(text: config.hueUsername, tag: 2, keyboard: .asciiCapable)
+            let field = makeField(text: config.hueUsername, tag: 2, keyboard: .asciiCapable)
+            hueUserField = field
+            cell.accessoryView = field
         case .sonosIPs:
             cell.textLabel?.text = "Sonos IPs (comma-separated)"
-            cell.accessoryView = makeField(text: sonosIPsText, tag: 3, keyboard: .asciiCapable)
+            let field = makeField(text: sonosIPsText, tag: 3, keyboard: .asciiCapable)
+            sonosIPsField = field
+            cell.accessoryView = field
         case .refresh:
             cell.textLabel?.text = "Refresh interval (seconds)"
-            cell.accessoryView = makeField(text: String(Int(config.refreshIntervalSeconds)), tag: 4, keyboard: .numberPad)
+            let field = makeField(text: String(Int(config.refreshIntervalSeconds)), tag: 4, keyboard: .numberPad)
+            refreshField = field
+            cell.accessoryView = field
         case .save:
             cell.textLabel?.text = "Save Settings"
             cell.textLabel?.textAlignment = .center
@@ -130,12 +150,12 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         view.endEditing(true)
 
         guard
-            let hueIP = value(forTag: 1), !hueIP.isEmpty,
-            let hueUser = value(forTag: 2), !hueUser.isEmpty,
-            let sonosRaw = value(forTag: 3),
-            let refreshRaw = value(forTag: 4), let refresh = TimeInterval(refreshRaw)
+            let hueIP = hueIPField?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !hueIP.isEmpty,
+            let hueUser = hueUserField?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !hueUser.isEmpty,
+            let sonosRaw = sonosIPsField?.text,
+            let refreshRaw = refreshField?.text, let refresh = TimeInterval(refreshRaw)
         else {
-            presentAlert(title: "Missing Values", message: "Fill in all fields before saving.")
+            presentAlert(title: "Missing Values", message: "Fill in Hue bridge IP and API username before saving.")
             return
         }
 
@@ -153,19 +173,10 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         )
 
         if config.saveToDocuments() {
-            presentAlert(title: "Saved", message: "Settings stored on this iPad.")
+            presentAlert(title: "Saved", message: "Settings stored on this iPad. Open the Lights tab to refresh.")
         } else {
             presentAlert(title: "Save Failed", message: "Could not write Config.json to Documents.")
         }
-    }
-
-    private func value(forTag tag: Int) -> String? {
-        for cell in tableView.visibleCells {
-            if let field = cell.accessoryView as? UITextField, field.tag == tag {
-                return field.text
-            }
-        }
-        return nil
     }
 
     private func showHelp() {

@@ -50,17 +50,19 @@ final class DashboardService {
         var errors: [String] = []
         let lock = NSLock()
 
-        group.enter()
-        lightsService.fetchLights { result in
-            lock.lock()
-            defer { lock.unlock() }
-            switch result {
-            case .success(let devices):
-                lights = devices
-            case .failure(let error):
-                errors.append("Lights: \(error.localizedDescription)")
+        if config.isHueConfigured {
+            group.enter()
+            lightsService.fetchLights { result in
+                lock.lock()
+                defer { lock.unlock() }
+                switch result {
+                case .success(let devices):
+                    lights = devices
+                case .failure(let error):
+                    errors.append("Lights: \(error.localizedDescription)")
+                }
+                group.leave()
             }
-            group.leave()
         }
 
         group.enter()

@@ -17,6 +17,12 @@ struct AppConfig: Codable {
         requestTimeoutSeconds: 8
     )
 
+    var isHueConfigured: Bool {
+        let ip = hueBridgeIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = hueUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !ip.isEmpty && !user.isEmpty && user != "YOUR_HUE_API_USERNAME"
+    }
+
     static func load() -> AppConfig {
         if let saved = loadFromDocuments() {
             return saved
