@@ -104,10 +104,12 @@ Add more device types by:
 | Problem | Fix |
 |---------|-----|
 | “Untrusted Developer” | Settings → General → Device Management → Trust |
+| `Could not launch` / `Security` / `DBGLLDBLauncher` | App may still be on the iPad home screen. Xcode 13 cannot attach LLDB to iOS 12.5 — this project launches **without the debugger**. After `git pull`, run again. Or: **Edit Scheme → Run → Info → Debugger: None** |
 | App expired | Re-run from Xcode (free account) |
 | No lights found | Check bridge IP, username, same Wi-Fi |
 | Sonos unreachable | Verify IP, ping from Mac, same subnet |
 | Build fails on deployment target | Set **iOS 12.0** manually in target → General |
+| iPad not listed in Xcode | Run `./scripts/install-ios1257-device-support.sh` on the build Mac |
 
 ## License
 
