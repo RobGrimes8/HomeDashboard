@@ -66,6 +66,8 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "playlist-cell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 120
 
         playlistsTitleLabel.text = "Playlists"
         playlistsTitleLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
@@ -214,46 +216,86 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         guard let section = Section(rawValue: section) else { return nil }
         switch section {
         case .sonosFavorites:
-            return "Sonos Favorites"
+            return "Sonos Favorites (DEBUG — tap for full detail)"
         case .configuredPlaylists:
             return playlists.isEmpty ? nil : "Settings Playlists"
         }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "playlist-cell", for: indexPath)
-        cell.backgroundColor = UIColor(white: 1.0, alpha: 0.08)
-        cell.textLabel?.textColor = DashboardTheme.textPrimary
-        cell.textLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-        cell.textLabel?.numberOfLines = 2
-        cell.accessoryType = .disclosureIndicator
-        cell.selectionStyle = .default
-
         guard let section = Section(rawValue: indexPath.section) else {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "playlist-cell", for: indexPath)
             return cell
         }
 
         switch section {
         case .sonosFavorites:
+            let identifier = "favorite-debug-cell"
+            let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
+                ?? UITableViewCell(style: .subtitle, reuseIdentifier: identifier)
+            styleDebugCell(cell)
+
             if isLoadingFavorites {
                 cell.textLabel?.text = "Loading Sonos favorites…"
+                cell.detailTextLabel?.text = nil
                 cell.selectionStyle = .none
             } else if sonosFavorites.isEmpty {
                 cell.textLabel?.text = "No favorites — tap ♥ in the Sonos app"
+                cell.detailTextLabel?.text = nil
                 cell.selectionStyle = .none
             } else {
-                cell.textLabel?.text = sonosFavorites[indexPath.row].title
+                let favorite = sonosFavorites[indexPath.row]
+                cell.textLabel?.text = "#\(indexPath.row): \(favorite.title)"
+                cell.detailTextLabel?.text = favoriteDebugPreview(favorite)
+                cell.selectionStyle = .default
             }
+            return cell
+
         case .configuredPlaylists:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "playlist-cell", for: indexPath)
+            cell.backgroundColor = UIColor(white: 1.0, alpha: 0.08)
+            cell.textLabel?.textColor = DashboardTheme.textPrimary
+            cell.textLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+            cell.textLabel?.numberOfLines = 2
+            cell.detailTextLabel?.text = nil
+            cell.accessoryType = .disclosureIndicator
+            cell.selectionStyle = .default
+
             if playlists.isEmpty {
                 cell.textLabel?.text = "Optional: add playlists in Settings"
                 cell.selectionStyle = .none
             } else {
                 cell.textLabel?.text = playlists[indexPath.row].name
             }
+            return cell
         }
+    }
 
-        return cell
+    private func styleDebugCell(_ cell: UITableViewCell) {
+        cell.backgroundColor = UIColor(white: 1.0, alpha: 0.08)
+        cell.textLabel?.textColor = DashboardTheme.textPrimary
+        cell.textLabel?.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        cell.textLabel?.numberOfLines = 2
+        cell.detailTextLabel?.textColor = DashboardTheme.textSecondary
+        cell.detailTextLabel?.font = UIFont(name: "Menlo-Regular", size: 10) ?? UIFont.systemFont(ofSize: 10)
+        cell.detailTextLabel?.numberOfLines = 0
+        cell.accessoryType = .disclosureIndicator
+    }
+
+    private func favoriteDebugPreview(_ favorite: SonosFavorite) -> String {
+        let uri = favorite.uri.isEmpty ? "(empty)" : favorite.uri
+        let objectID = favorite.objectID ?? "(nil)"
+        let bodyPreview = favorite.rawBody
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let clippedBody = bodyPreview.count > 200 ? String(bodyPreview.prefix(200)) + "…" : bodyPreview
+        return """
+        tag=\(favorite.elementTag) itemID=\(favorite.itemID)
+        objectID=\(objectID)
+        uri=\(uri)
+        opening=\(favorite.openingTag.isEmpty ? "(empty)" : favorite.openingTag)
+        body=\(clippedBody.isEmpty ? "(empty)" : clippedBody)
+        """
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -264,9 +306,13 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         case .sonosFavorites:
             guard !isLoadingFavorites, !sonosFavorites.isEmpty else { return }
             let favorite = sonosFavorites[indexPath.row]
-            service.playSpeakerFavorite(speaker, favorite: favorite) { [weak self] result in
-                self?.handlePlaybackResult(result)
-            }
+            let debugVC = FavoriteDebugViewController(
+                favorite: favorite,
+                index: indexPath.row,
+                speaker: speaker,
+                service: service
+            )
+            navigationController?.pushViewController(debugVC, animated: true)
         case .configuredPlaylists:
             guard !playlists.isEmpty else { return }
             let playlist = playlists[indexPath.row]
@@ -277,7 +323,13 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 52
+        guard let section = Section(rawValue: indexPath.section) else { return 52 }
+        switch section {
+        case .sonosFavorites:
+            return UITableView.automaticDimension
+        case .configuredPlaylists:
+            return 52
+        }
     }
 
     private func handlePlaybackResult(_ result: Result<Void, LocalHTTPError>) {

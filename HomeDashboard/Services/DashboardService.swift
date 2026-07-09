@@ -218,6 +218,14 @@ final class DashboardService {
         sonosService.fetchFavorites(on: device.id, completion: completion)
     }
 
+    func fetchSpeakerFavoriteBrowseDebug(
+        _ device: SmartDevice,
+        browseID: String,
+        completion: @escaping (Result<String, LocalHTTPError>) -> Void
+    ) {
+        sonosService.fetchFavoriteBrowseDebug(on: device.id, browseID: browseID, completion: completion)
+    }
+
     func playSpeakerFavorite(
         _ device: SmartDevice,
         favorite: SonosFavorite,

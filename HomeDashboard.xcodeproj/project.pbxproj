@@ -12,6 +12,7 @@
 		DBGBF002 /* DebugLogViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBGREF002 /* DebugLogViewController.swift */; };
 		SPCBF001 /* SonosSpeakerCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPCREF001 /* SonosSpeakerCardCell.swift */; };
 		SDVBF001 /* SonosSpeakerDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = SDVREF001 /* SonosSpeakerDetailViewController.swift */; };
+		FDBF001 /* FavoriteDebugViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDREF001 /* FavoriteDebugViewController.swift */; };
 		GLBF001 /* GlassPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GLREF001 /* GlassPanelView.swift */; };
 		THBF001 /* DashboardTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = THREF001 /* DashboardTheme.swift */; };
 		GRBF001 /* GroupCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRREF001 /* GroupCardCell.swift */; };
@@ -48,6 +49,7 @@
 		DBGREF002 /* DebugLogViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogViewController.swift; sourceTree = "<group>"; };
 		SPCREF001 /* SonosSpeakerCardCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosSpeakerCardCell.swift; sourceTree = "<group>"; };
 		SDVREF001 /* SonosSpeakerDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosSpeakerDetailViewController.swift; sourceTree = "<group>"; };
+		FDREF001 /* FavoriteDebugViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteDebugViewController.swift; sourceTree = "<group>"; };
 		GLREF001 /* GlassPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassPanelView.swift; sourceTree = "<group>"; };
 		THREF001 /* DashboardTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardTheme.swift; sourceTree = "<group>"; };
 		GRREF001 /* GroupCardCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCardCell.swift; sourceTree = "<group>"; };
@@ -181,6 +183,7 @@
 				LLREF001 /* LightListViewController.swift */,
 				DE0C44D2A3F14F32B054498A /* SonosViewController.swift */,
 				SDVREF001 /* SonosSpeakerDetailViewController.swift */,
+				FDREF001 /* FavoriteDebugViewController.swift */,
 				E2BD0F42AD9248929C22F639 /* SettingsViewController.swift */,
 				DBGREF002 /* DebugLogViewController.swift */,
 			);
@@ -276,6 +279,7 @@
 				DBGBF002 /* DebugLogViewController.swift in Sources */,
 				SPCBF001 /* SonosSpeakerCardCell.swift in Sources */,
 				SDVBF001 /* SonosSpeakerDetailViewController.swift in Sources */,
+				FDBF001 /* FavoriteDebugViewController.swift in Sources */,
 				GLBF001 /* GlassPanelView.swift in Sources */,
 				THBF001 /* DashboardTheme.swift in Sources */,
 				GRBF001 /* GroupCardCell.swift in Sources */,

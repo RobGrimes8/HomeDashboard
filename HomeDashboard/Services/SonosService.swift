@@ -218,6 +218,46 @@ final class SonosService {
         }
     }
 
+    /// TEMP DEBUG — browse metadata + children for a favorite shortcut.
+    func fetchFavoriteBrowseDebug(
+        on speakerIP: String,
+        browseID: String,
+        completion: @escaping (Result<String, LocalHTTPError>) -> Void
+    ) {
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            guard let self = self else { return }
+            self.browseSonosFavorite(at: coordinatorIP, objectID: browseID, flag: "BrowseMetadata") { metadataResult in
+                switch metadataResult {
+                case .failure(let error):
+                    completion(.failure(error))
+                case .success(let metadataXML):
+                    self.browseSonosFavorite(at: coordinatorIP, objectID: browseID, flag: "BrowseDirectChildren") { childrenResult in
+                        switch childrenResult {
+                        case .failure(let error):
+                            let text = """
+                            === BrowseMetadata ===
+                            \(metadataXML)
+
+                            === BrowseDirectChildren ===
+                            (failed: \(error.localizedDescription))
+                            """
+                            completion(.success(text))
+                        case .success(let childrenXML):
+                            let text = """
+                            === BrowseMetadata ===
+                            \(metadataXML)
+
+                            === BrowseDirectChildren ===
+                            \(childrenXML)
+                            """
+                            completion(.success(text))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func playFavorite(on speakerIP: String, favorite: SonosFavorite, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
         DebugLog.shared.log("Play Sonos favorite: \(favorite.title)")
 
@@ -834,7 +874,11 @@ final class SonosService {
                 title: decodeHTMLEntities(title),
                 uri: uri,
                 metadata: xmlEscape(metadataDIDL),
-                objectID: objectID
+                objectID: objectID,
+                elementTag: tagName,
+                itemID: itemID,
+                openingTag: openingTag,
+                rawBody: body
             )
         }
     }
