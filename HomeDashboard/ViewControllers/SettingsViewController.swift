@@ -426,8 +426,8 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         Spotify playlists:
         1. Link Spotify in the Sonos app first (Settings → Services).
         2. Spotify Premium is required for Sonos playback.
-        3. One per line: Name=spotify:playlist:YOUR_ID
-        4. Or paste a share URL after the equals sign.
+        3. RECOMMENDED: In the Sonos app, add each playlist to My Sonos → Favorites (heart icon). HomeDashboard will use Sonos’s own URI/metadata for reliable playback.
+        4. Also add playlists here: Name=spotify:playlist:YOUR_ID (or paste a share URL).
         5. Tap a speaker on the Sonos tab, then pick a playlist.
 
         Light groups:

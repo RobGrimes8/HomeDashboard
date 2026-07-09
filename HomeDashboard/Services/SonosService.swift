@@ -230,15 +230,150 @@ final class SonosService {
                 DebugLog.shared.log("Spotify playlist via coordinator \(coordinatorIP) (speaker \(speakerIP))")
             }
 
-            self.attemptSpotifyPlaylistPlayback(
-                on: coordinatorIP,
+            self.playSpotifyFromFavorites(on: coordinatorIP, playlistID: parsed.id) { favoriteResult in
+                switch favoriteResult {
+                case .success:
+                    completion(.success(()))
+                case .failure(let favoriteError):
+                    DebugLog.shared.log("Sonos favorites miss for \(parsed.id): \(favoriteError.localizedDescription)")
+                    self.attemptSpotifyPlaylistPlayback(
+                        on: coordinatorIP,
+                        title: title,
+                        parsed: parsed,
+                        regions: ["2311", "3079"],
+                        regionIndex: 0,
+                        variantIndex: 0,
+                        completion: completion
+                    )
+                }
+            }
+        }
+    }
+
+    private struct SonosFavoriteItem {
+        let title: String
+        let uri: String
+        let metadata: String
+    }
+
+    private func playSpotifyFromFavorites(
+        on speakerIP: String,
+        playlistID: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        fetchSonosFavorites(at: speakerIP) { [weak self] items in
+            guard let self = self else { return }
+            let normalizedID = playlistID.lowercased()
+            guard
+                let favorite = items.first(where: { item in
+                    item.uri.lowercased().contains(normalizedID)
+                        || item.metadata.lowercased().contains(normalizedID)
+                })
+            else {
+                completion(.failure(.decodingFailed))
+                return
+            }
+
+            DebugLog.shared.log("Spotify favorite match: \(favorite.title) → \(favorite.uri)")
+            self.setSpotifyTransport(
+                on: speakerIP,
+                uri: favorite.uri,
+                metadata: favorite.metadata,
+                label: "favorite"
+            ) { result in
+                switch result {
+                case .failure(let error):
+                    completion(.failure(error))
+                case .success:
+                    self.performPlay(on: speakerIP, completion: completion)
+                }
+            }
+        }
+    }
+
+    private func fetchSonosFavorites(at ip: String, completion: @escaping ([SonosFavoriteItem]) -> Void) {
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+              <ObjectID>FV:2</ObjectID>
+              <BrowseFlag>BrowseDirectChildren</BrowseFlag>
+              <Filter>*</Filter>
+              <StartingIndex>0</StartingIndex>
+              <RequestedCount>100</RequestedCount>
+              <SortCriteria></SortCriteria>
+            </u:Browse>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        performSOAP(
+            ip: ip,
+            controlPath: "/MediaServer/ContentDirectory/Control",
+            action: "urn:schemas-upnp-org:service:ContentDirectory:1#Browse",
+            body: body
+        ) { result in
+            switch result {
+            case .failure:
+                completion([])
+            case .success(let xml):
+                guard let resultXML = self.extractXMLValue(named: "Result", from: xml) else {
+                    completion([])
+                    return
+                }
+                completion(self.parseSonosFavoriteItems(from: resultXML))
+            }
+        }
+    }
+
+    private func parseSonosFavoriteItems(from resultXML: String) -> [SonosFavoriteItem] {
+        let decoded = decodeHTMLEntities(resultXML)
+        let itemPattern = "<item[^>]*id=\"([^\"]+)\"[^>]*>(.*?)</item>"
+        guard let regex = try? NSRegularExpression(pattern: itemPattern, options: [.dotMatchesLineSeparators]) else {
+            return []
+        }
+
+        let range = NSRange(decoded.startIndex..., in: decoded)
+        let matches = regex.matches(in: decoded, options: [], range: range)
+        return matches.compactMap { match in
+            guard
+                let itemIDRange = Range(match.range(at: 1), in: decoded),
+                let bodyRange = Range(match.range(at: 2), in: decoded)
+            else {
+                return nil
+            }
+
+            let itemID = String(decoded[itemIDRange])
+            let body = String(decoded[bodyRange])
+            guard let uri = extractResURI(from: body), uri.contains("spotify") || uri.contains("playlist") else {
+                return nil
+            }
+
+            let title = extractXMLValue(named: "title", from: body) ?? itemID
+            let metadataDIDL = """
+            <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="\(itemID)" parentID="-1" restricted="true">\(body)</item></DIDL-Lite>
+            """
+            return SonosFavoriteItem(
                 title: title,
-                parsed: parsed,
-                regions: ["2311", "3079"],
-                regionIndex: 0,
-                completion: completion
+                uri: uri,
+                metadata: xmlEscape(metadataDIDL)
             )
         }
+    }
+
+    private func extractResURI(from xml: String) -> String? {
+        let pattern = "<res[^>]*>(.*?)</res>"
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+            let match = regex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
+            let range = Range(match.range(at: 1), in: xml)
+        else {
+            return nil
+        }
+
+        let value = String(xml[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private struct ParsedSpotifyURI {
@@ -255,6 +390,7 @@ final class SonosService {
         parsed: ParsedSpotifyURI,
         regions: [String],
         regionIndex: Int,
+        variantIndex: Int,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
         guard regionIndex < regions.count else {
@@ -263,12 +399,26 @@ final class SonosService {
         }
 
         let region = regions[regionIndex]
-        let request = spotifyPlaylistRequest(title: title, parsed: parsed, region: region)
+        let variants = spotifyPlaylistVariants(title: title, parsed: parsed, region: region)
+        guard variantIndex < variants.count else {
+            completion(.failure(.invalidResponse))
+            return
+        }
+
+        let request = variants[variantIndex]
 
         addSpotifyPlaylistToQueue(on: speakerIP, request: request) { [weak self] result in
             switch result {
             case .success(let trackNumber):
-                self?.playFromQueueTrack(on: speakerIP, trackNumber: trackNumber, completion: completion)
+                self?.playFromQueueTrack(on: speakerIP, trackNumber: trackNumber) { queueResult in
+                    switch queueResult {
+                    case .success:
+                        completion(.success(()))
+                    case .failure:
+                        DebugLog.shared.log("Spotify queue bind failed, trying direct Play")
+                        self?.performPlay(on: speakerIP, completion: completion)
+                    }
+                }
             case .failure(let queueError):
                 self?.advanceSpotifyPlaylistAttempt(
                     on: speakerIP,
@@ -276,6 +426,7 @@ final class SonosService {
                     parsed: parsed,
                     regions: regions,
                     regionIndex: regionIndex,
+                    variantIndex: variantIndex,
                     lastError: queueError,
                     completion: completion
                 )
@@ -289,9 +440,28 @@ final class SonosService {
         parsed: ParsedSpotifyURI,
         regions: [String],
         regionIndex: Int,
+        variantIndex: Int,
         lastError: LocalHTTPError,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
+        let region = regions[regionIndex]
+        let variants = spotifyPlaylistVariants(title: title, parsed: parsed, region: region)
+
+        let nextVariant = variantIndex + 1
+        if nextVariant < variants.count {
+            DebugLog.shared.log("Spotify playlist retry variant \(variants[nextVariant].label)")
+            attemptSpotifyPlaylistPlayback(
+                on: speakerIP,
+                title: title,
+                parsed: parsed,
+                regions: regions,
+                regionIndex: regionIndex,
+                variantIndex: nextVariant,
+                completion: completion
+            )
+            return
+        }
+
         let nextRegion = regionIndex + 1
         if nextRegion < regions.count {
             DebugLog.shared.log("Spotify playlist retry region \(regions[nextRegion])")
@@ -301,6 +471,7 @@ final class SonosService {
                 parsed: parsed,
                 regions: regions,
                 regionIndex: nextRegion,
+                variantIndex: 0,
                 completion: completion
             )
             return
@@ -315,28 +486,94 @@ final class SonosService {
         let itemId: String
         let title: String
         let cdUdn: String
+        let useMetadata: Bool
+        let label: String
     }
 
-    private func spotifyPlaylistRequest(
+    private func spotifyPlaylistVariants(
         title: String,
         parsed: ParsedSpotifyURI,
         region: String
-    ) -> SpotifyPlaylistRequest {
-        let encodedURI = parsed.encodedURI
-        return SpotifyPlaylistRequest(
-            queueURI: "x-rincon-cpcontainer:1006206c\(encodedURI)",
-            itemId: "1006206c\(encodedURI)",
-            title: title,
-            cdUdn: "SA_RINCON\(region)_X_#Svc\(region)-0-Token"
-        )
+    ) -> [SpotifyPlaylistRequest] {
+        let encodedPlaylist = parsed.encodedURI
+        let encodedUserPlaylist = "spotify%3auser%3aspotify%3aplaylist%3a\(parsed.id)"
+        let cdUdn = "SA_RINCON\(region)_X_#Svc\(region)-0-Token"
+
+        return [
+            SpotifyPlaylistRequest(
+                queueURI: "x-rincon-cpcontainer:1006206c\(encodedPlaylist)",
+                itemId: "1006206c\(encodedPlaylist)",
+                title: title,
+                cdUdn: cdUdn,
+                useMetadata: true,
+                label: "standard"
+            ),
+            SpotifyPlaylistRequest(
+                queueURI: "x-rincon-cpcontainer:0006206c\(encodedUserPlaylist)",
+                itemId: "0006206c\(encodedUserPlaylist)",
+                title: title,
+                cdUdn: cdUdn,
+                useMetadata: true,
+                label: "user-style"
+            ),
+            SpotifyPlaylistRequest(
+                queueURI: "x-rincon-cpcontainer:1006206c\(encodedPlaylist)?sid=9&flags=8300&sn=0",
+                itemId: "1006206c\(encodedPlaylist)",
+                title: title,
+                cdUdn: cdUdn,
+                useMetadata: true,
+                label: "with-sid"
+            ),
+            SpotifyPlaylistRequest(
+                queueURI: "x-rincon-cpcontainer:1006206c\(encodedPlaylist)",
+                itemId: "1006206c\(encodedPlaylist)",
+                title: title,
+                cdUdn: cdUdn,
+                useMetadata: false,
+                label: "no-metadata"
+            )
+        ]
     }
 
     private func spotifyShareMetadata(for request: SpotifyPlaylistRequest) -> String {
+        guard request.useMetadata else { return "" }
+
         let escapedTitle = xmlEscape(request.title)
         let didl = """
         <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="\(request.itemId)" parentID="-1" restricted="true"><dc:title>\(escapedTitle)</dc:title><upnp:class>object.container.playlistContainer</upnp:class><desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">\(request.cdUdn)</desc></item></DIDL-Lite>
         """
         return xmlEscape(didl)
+    }
+
+    private func setSpotifyTransport(
+        on speakerIP: String,
+        uri: String,
+        metadata: String,
+        label: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <CurrentURI>\(escapedURI)</CurrentURI>
+              <CurrentURIMetaData>\(metadata)</CurrentURIMetaData>
+            </u:SetAVTransportURI>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        DebugLog.shared.log("Spotify SetAVTransportURI [\(label)] \(uri)")
+        avTransportAction(
+            ip: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+            body: body,
+            completion: completion,
+            skipCoordinatorResolution: true
+        )
     }
 
     private func addSpotifyPlaylistToQueue(
@@ -360,7 +597,7 @@ final class SonosService {
         </s:Envelope>
         """
 
-        DebugLog.shared.log("Spotify AddURIToQueue \(request.queueURI) (\(request.cdUdn))")
+        DebugLog.shared.log("Spotify AddURIToQueue [\(request.label)] \(request.queueURI) (\(request.cdUdn))")
         performSOAP(
             ip: speakerIP,
             controlPath: "/MediaRenderer/AVTransport/Control",
@@ -923,6 +1160,7 @@ final class SonosService {
         request.httpMethod = "POST"
         request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue(action, forHTTPHeaderField: "SOAPACTION")
+        request.setValue("Linux UPnP/1.0 Sonos/83.1-61210", forHTTPHeaderField: "User-Agent")
         request.httpBody = body.data(using: .utf8)
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in

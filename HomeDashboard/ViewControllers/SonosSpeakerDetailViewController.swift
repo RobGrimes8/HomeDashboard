@@ -204,7 +204,7 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
                         self?.service.refreshNow()
                     }
                 case .failure(let error):
-                    let hint = "If you see UPnP Error 800, use the main/group speaker IP in Settings (not a satellite). Also confirm Spotify is linked in the Sonos app and you have Premium. Enable Debug Log for details."
+                    let hint = "Add the playlist to Sonos Favorites first (Sonos app → My Sonos → ♥ on the playlist), then try again. Also confirm Spotify Premium and that Spotify is linked in Sonos → Settings → Services."
                     self?.presentAlert(
                         title: "Could Not Play Playlist",
                         message: "\(error.localizedDescription)\n\n\(hint)"
