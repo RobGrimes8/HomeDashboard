@@ -2,12 +2,14 @@ import UIKit
 
 final class MainTabBarController: UITabBarController {
 
+    private var tabBarBlur: UIVisualEffectView?
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        tabBar.isTranslucent = false
-        tabBar.barTintColor = DashboardTheme.sidebar
-        tabBar.tintColor = DashboardTheme.accent
-        tabBar.unselectedItemTintColor = UIColor(white: 0.55, alpha: 1.0)
+        view.backgroundColor = .clear
+        DashboardTheme.installBackground(in: view)
+
+        configureGlassTabBar()
 
         let lights = LightsViewController()
         lights.tabBarItem = UITabBarItem(title: "Rooms", image: tabIcon(systemName: "lightbulb", fallback: "L"), tag: 0)
@@ -28,10 +30,58 @@ final class MainTabBarController: UITabBarController {
             UINavigationController(rootViewController: settings)
         ]
         selectedIndex = 0
+
+        viewControllers?.forEach { controller in
+            if let nav = controller as? UINavigationController {
+                DashboardTheme.styleNavigationBar(nav.navigationBar)
+            }
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutFloatingTabBar()
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         return .landscape
+    }
+
+    private func configureGlassTabBar() {
+        tabBar.isTranslucent = true
+        tabBar.backgroundImage = UIImage()
+        tabBar.shadowImage = UIImage()
+        tabBar.tintColor = DashboardTheme.accent
+        tabBar.unselectedItemTintColor = DashboardTheme.textSecondary
+        tabBar.barTintColor = .clear
+        tabBar.layer.cornerRadius = 22
+        tabBar.layer.masksToBounds = true
+        tabBar.layer.borderWidth = 1
+        tabBar.layer.borderColor = DashboardTheme.glassBorder.cgColor
+
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        blur.frame = tabBar.bounds
+        blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        blur.isUserInteractionEnabled = false
+        tabBar.insertSubview(blur, at: 0)
+        tabBarBlur = blur
+    }
+
+    private func layoutFloatingTabBar() {
+        let height = tabBar.frame.height
+        let width = min(view.bounds.width - 96, 480)
+        tabBar.frame = CGRect(
+            x: (view.bounds.width - width) / 2,
+            y: view.bounds.height - height - 10,
+            width: width,
+            height: height
+        )
+        tabBarBlur?.frame = tabBar.bounds
+
+        let bottomInset = view.bounds.height - tabBar.frame.minY + 4
+        viewControllers?.forEach { controller in
+            controller.additionalSafeAreaInsets.bottom = max(0, bottomInset - view.safeAreaInsets.bottom)
+        }
     }
 
     /// SF Symbols require iOS 13+. On iOS 12, render a simple text badge so tabs stay visible.

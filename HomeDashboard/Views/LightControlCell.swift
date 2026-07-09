@@ -7,6 +7,7 @@ final class LightControlCell: UITableViewCell {
     var onToggle: (() -> Void)?
     var onBrightnessChanged: ((Int) -> Void)?
 
+    private let glassPanel = GlassPanelView()
     private let nameLabel = UILabel()
     private let detailLabel = UILabel()
     private let toggleSwitch = UISwitch()
@@ -14,42 +15,58 @@ final class LightControlCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor(white: 0.10, alpha: 1.0)
+        backgroundColor = .clear
         selectionStyle = .none
 
+        glassPanel.cornerRadius = 14
+        glassPanel.panelTint = DashboardTheme.glassPurple
+
         nameLabel.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
-        nameLabel.textColor = .white
+        nameLabel.textColor = DashboardTheme.textPrimary
 
         detailLabel.font = UIFont.systemFont(ofSize: 13)
-        detailLabel.textColor = UIColor(white: 0.65, alpha: 1.0)
+        detailLabel.textColor = DashboardTheme.textSecondary
 
-        toggleSwitch.onTintColor = UIColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1.0)
+        toggleSwitch.onTintColor = DashboardTheme.accent
         toggleSwitch.addTarget(self, action: #selector(toggleChanged), for: .valueChanged)
 
         slider.minimumValue = 0
         slider.maximumValue = 254
+        slider.minimumTrackTintColor = DashboardTheme.accent
+        slider.maximumTrackTintColor = UIColor(white: 1.0, alpha: 0.18)
         slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
 
-        [nameLabel, detailLabel, toggleSwitch, slider].forEach {
+        [glassPanel, nameLabel, detailLabel, toggleSwitch, slider].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
         }
 
+        contentView.addSubview(glassPanel)
+        glassPanel.addSubview(nameLabel)
+        glassPanel.addSubview(detailLabel)
+        glassPanel.addSubview(toggleSwitch)
+        glassPanel.addSubview(slider)
+
         NSLayoutConstraint.activate([
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            glassPanel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            glassPanel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            glassPanel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            glassPanel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+
+            nameLabel.topAnchor.constraint(equalTo: glassPanel.topAnchor, constant: 12),
+            nameLabel.leadingAnchor.constraint(equalTo: glassPanel.leadingAnchor, constant: 14),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: toggleSwitch.leadingAnchor, constant: -12),
 
             toggleSwitch.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
-            toggleSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            toggleSwitch.trailingAnchor.constraint(equalTo: glassPanel.trailingAnchor, constant: -14),
 
             detailLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
             detailLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            detailLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            detailLabel.trailingAnchor.constraint(equalTo: glassPanel.trailingAnchor, constant: -14),
 
             slider.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: 10),
-            slider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            slider.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+            slider.leadingAnchor.constraint(equalTo: glassPanel.leadingAnchor, constant: 14),
+            slider.trailingAnchor.constraint(equalTo: glassPanel.trailingAnchor, constant: -14),
+            slider.bottomAnchor.constraint(equalTo: glassPanel.bottomAnchor, constant: -12)
         ])
     }
 
@@ -64,6 +81,8 @@ final class LightControlCell: UITableViewCell {
         } else {
             detailLabel.text = light.isReachable ? "Local Hue light" : "Unreachable"
         }
+        glassPanel.panelTint = DashboardTheme.roomTint(for: light.name)
+        glassPanel.setGlowActive(light.isOn)
         toggleSwitch.isOn = light.isOn
         slider.value = Float(light.brightness ?? 0)
         slider.isEnabled = light.isReachable
@@ -73,6 +92,7 @@ final class LightControlCell: UITableViewCell {
     func configurePlaceholder(title: String, detail: String) {
         nameLabel.text = title
         detailLabel.text = detail
+        glassPanel.setGlowActive(false)
         toggleSwitch.isOn = false
         slider.value = 0
         slider.isEnabled = false
@@ -92,6 +112,7 @@ final class LightControlCell: UITableViewCell {
 
     func setToggle(isOn: Bool, animated: Bool = true) {
         toggleSwitch.setOn(isOn, animated: animated)
+        glassPanel.setGlowActive(isOn)
     }
 
     @objc private func sliderChanged() {

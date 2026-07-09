@@ -11,7 +11,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = MainTabBarController()
-        window.tintColor = UIColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1.0)
+        window.tintColor = DashboardTheme.accent
         window.makeKeyAndVisible()
         self.window = window
         DebugLog.shared.log("App launched")

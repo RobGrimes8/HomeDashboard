@@ -10,14 +10,12 @@ final class SonosViewController: UIViewController, DashboardServiceDelegate, UIT
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Sonos"
-        view.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
+        view.backgroundColor = .clear
+        DashboardTheme.installBackground(in: view)
+        DashboardTheme.styleNavigationBar(navigationController?.navigationBar)
 
-        navigationController?.navigationBar.barStyle = .black
-        navigationController?.navigationBar.barTintColor = UIColor(white: 0.08, alpha: 1.0)
-        navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
-
-        tableView.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
-        tableView.separatorColor = UIColor(white: 0.18, alpha: 1.0)
+        tableView.backgroundColor = .clear
+        tableView.separatorStyle = .none
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(SpeakerControlCell.self, forCellReuseIdentifier: SpeakerControlCell.reuseID)
@@ -94,7 +92,7 @@ final class SonosViewController: UIViewController, DashboardServiceDelegate, UIT
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 110
+        return 120
     }
 
     private func presentAlert(title: String, message: String) {

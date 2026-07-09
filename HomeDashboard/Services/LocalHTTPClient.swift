@@ -68,7 +68,7 @@ final class LocalHTTPClient {
             }
 
             if let hueError = Self.hueError(from: data) {
-                DebugLog.shared.error("GET \(urlString) → \(hueError.localizedDescription ?? "Hue error")")
+                DebugLog.shared.error("GET \(urlString) → \(hueError.localizedDescription)")
                 completion(.failure(hueError))
                 return
             }
@@ -128,7 +128,7 @@ final class LocalHTTPClient {
             }
 
             if let data = data, let hueError = Self.hueError(from: data) {
-                DebugLog.shared.error("\(method) \(urlString) → \(hueError.localizedDescription ?? "Hue error")")
+                DebugLog.shared.error("\(method) \(urlString) → \(hueError.localizedDescription)")
                 completion(.failure(hueError))
                 return
             }

@@ -8,7 +8,7 @@ final class DashboardViewController: UIViewController, DashboardServiceDelegate 
     private let statusLabel: UILabel = {
         let label = UILabel()
         label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        label.textColor = UIColor(white: 0.65, alpha: 1.0)
+        label.textColor = DashboardTheme.textSecondary
         label.numberOfLines = 0
         label.textAlignment = .center
         return label
@@ -18,9 +18,9 @@ final class DashboardViewController: UIViewController, DashboardServiceDelegate 
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 16
         layout.minimumLineSpacing = 16
-        layout.sectionInset = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+        layout.sectionInset = UIEdgeInsets(top: 16, left: 20, bottom: 24, right: 20)
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        view.backgroundColor = DashboardTheme.background
+        view.backgroundColor = .clear
         view.alwaysBounceVertical = true
         return view
     }()
@@ -34,14 +34,9 @@ final class DashboardViewController: UIViewController, DashboardServiceDelegate 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Home Dashboard"
-        view.backgroundColor = DashboardTheme.background
-
-        navigationController?.navigationBar.barStyle = .black
-        navigationController?.navigationBar.isTranslucent = false
-        navigationController?.navigationBar.barTintColor = DashboardTheme.navBar
-        navigationController?.navigationBar.titleTextAttributes = [
-            .foregroundColor: UIColor.white
-        ]
+        view.backgroundColor = .clear
+        DashboardTheme.installBackground(in: view)
+        DashboardTheme.styleNavigationBar(navigationController?.navigationBar)
 
         service.delegate = self
         setupLayout()
@@ -95,7 +90,7 @@ final class DashboardViewController: UIViewController, DashboardServiceDelegate 
             statusLabel.textColor = UIColor(red: 1.0, green: 0.55, blue: 0.35, alpha: 1.0)
         } else {
             statusLabel.text = "Updated \(time) · \(count) devices on local network"
-            statusLabel.textColor = UIColor(white: 0.65, alpha: 1.0)
+            statusLabel.textColor = DashboardTheme.textSecondary
         }
     }
 

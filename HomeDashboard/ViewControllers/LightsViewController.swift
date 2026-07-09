@@ -4,14 +4,19 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     private let service = DashboardService(config: AppConfig.load())
     private var lightGroups: [SmartDevice] = []
-    private let statusLabel = UILabel()
+
+    private let headerView = UIView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let allLightsButton = UIButton(type: .system)
+    private let refreshButton = UIButton(type: .system)
 
     private let groupsLayout: UICollectionViewFlowLayout = {
         let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .horizontal
+        layout.scrollDirection = .vertical
         layout.minimumLineSpacing = 16
         layout.minimumInteritemSpacing = 16
-        layout.sectionInset = UIEdgeInsets(top: 8, left: 20, bottom: 8, right: 20)
+        layout.sectionInset = UIEdgeInsets(top: 4, left: 24, bottom: 24, right: 24)
         return layout
     }()
 
@@ -19,55 +24,65 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Rooms"
-        view.backgroundColor = DashboardTheme.background
+        view.backgroundColor = .clear
+        DashboardTheme.installBackground(in: view)
 
-        navigationController?.navigationBar.barStyle = .black
-        navigationController?.navigationBar.barTintColor = DashboardTheme.navBar
-        navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
-        navigationController?.navigationBar.prefersLargeTitles = false
+        titleLabel.text = "My Dashboard"
+        titleLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        titleLabel.textColor = DashboardTheme.textPrimary
 
-        statusLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        statusLabel.textColor = UIColor(white: 0.65, alpha: 1.0)
-        statusLabel.textAlignment = .center
-        statusLabel.numberOfLines = 2
-        statusLabel.text = "Swipe for more rooms · Tap ON or OFF"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        subtitleLabel.textColor = DashboardTheme.textSecondary
+        subtitleLabel.text = "Loading rooms..."
+
+        configurePillButton(allLightsButton, title: "All Lights")
+        configurePillButton(refreshButton, title: "Refresh")
+        allLightsButton.addTarget(self, action: #selector(showAllLights), for: .touchUpInside)
+        refreshButton.addTarget(self, action: #selector(refreshTapped), for: .touchUpInside)
 
         groupsCollectionView.backgroundColor = .clear
         groupsCollectionView.dataSource = self
         groupsCollectionView.delegate = self
-        groupsCollectionView.register(GroupCardCell.self, forCellReuseIdentifier: GroupCardCell.reuseID)
-        groupsCollectionView.showsHorizontalScrollIndicator = true
-        groupsCollectionView.alwaysBounceHorizontal = true
+        groupsCollectionView.register(GroupCardCell.self, forCellWithReuseIdentifier: GroupCardCell.reuseID)
+        groupsCollectionView.showsVerticalScrollIndicator = false
+        groupsCollectionView.alwaysBounceVertical = true
 
-        [statusLabel, groupsCollectionView].forEach {
+        [headerView, titleLabel, subtitleLabel, allLightsButton, refreshButton, groupsCollectionView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview($0)
         }
 
-        NSLayoutConstraint.activate([
-            statusLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+        view.addSubview(headerView)
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(subtitleLabel)
+        headerView.addSubview(allLightsButton)
+        headerView.addSubview(refreshButton)
+        view.addSubview(groupsCollectionView)
 
-            groupsCollectionView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 12),
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            headerView.heightAnchor.constraint(equalToConstant: 64),
+
+            titleLabel.topAnchor.constraint(equalTo: headerView.topAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+
+            refreshButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            refreshButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+
+            allLightsButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            allLightsButton.trailingAnchor.constraint(equalTo: refreshButton.leadingAnchor, constant: -10),
+
+            groupsCollectionView.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 12),
             groupsCollectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             groupsCollectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            groupsCollectionView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+            groupsCollectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
         service.delegate = self
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "All Lights",
-            style: .plain,
-            target: self,
-            action: #selector(showAllLights)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .refresh,
-            target: self,
-            action: #selector(refreshTapped)
-        )
 
         NotificationCenter.default.addObserver(
             self,
@@ -85,38 +100,57 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
         return .landscape
     }
 
-    @objc private func configDidChange() {
-        service.updateConfig(AppConfig.load())
-        service.refreshNow()
-    }
-
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
         service.updateConfig(AppConfig.load())
         service.refreshNow()
     }
 
-    @objc private func refreshTapped() {
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
+    private func configurePillButton(_ button: UIButton, title: String) {
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        button.setTitleColor(DashboardTheme.textPrimary, for: .normal)
+        button.backgroundColor = UIColor(white: 1.0, alpha: 0.10)
+        button.layer.cornerRadius = 16
+        button.layer.borderWidth = 1
+        button.layer.borderColor = DashboardTheme.glassBorder.cgColor
+        button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+    }
+
+    @objc func configDidChange() {
+        service.updateConfig(AppConfig.load())
         service.refreshNow()
     }
 
-    @objc private func showAllLights() {
+    @objc func refreshTapped() {
+        service.refreshNow()
+    }
+
+    @objc func showAllLights() {
         navigationController?.pushViewController(LightListViewController(), animated: true)
     }
 
     func dashboardService(_ service: DashboardService, didUpdate snapshot: DashboardSnapshot) {
         lightGroups = snapshot.lightGroups
         if lightGroups.isEmpty {
-            statusLabel.text = "No rooms found. Check Settings, then refresh."
+            subtitleLabel.text = "No rooms found"
+            subtitleLabel.textColor = DashboardTheme.textSecondary
         } else {
-            statusLabel.text = "\(lightGroups.count) rooms · swipe sideways · All Lights for individual control"
+            subtitleLabel.text = "\(lightGroups.count) rooms"
+            subtitleLabel.textColor = DashboardTheme.textSecondary
         }
         groupsCollectionView.reloadData()
     }
 
     func dashboardService(_ service: DashboardService, didFailWith error: Error) {
-        statusLabel.text = error.localizedDescription
-        statusLabel.textColor = UIColor(red: 1.0, green: 0.55, blue: 0.35, alpha: 1.0)
+        subtitleLabel.text = error.localizedDescription
+        subtitleLabel.textColor = UIColor(red: 1.0, green: 0.55, blue: 0.35, alpha: 1.0)
     }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
@@ -137,10 +171,10 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
         let group = lightGroups[indexPath.item]
         cell.configure(with: group)
-        cell.onTurnOn = { [weak self, weak cell] in
+        cell.onTurnOn = { [weak self] in
             self?.setGroup(group, isOn: true, cell: cell)
         }
-        cell.onTurnOff = { [weak self, weak cell] in
+        cell.onTurnOff = { [weak self] in
             self?.setGroup(group, isOn: false, cell: cell)
         }
         return cell
@@ -151,8 +185,12 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
         layout collectionViewLayout: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath
     ) -> CGSize {
-        let height = max(collectionView.bounds.height - 16, 220)
-        return CGSize(width: 220, height: height)
+        let columns: CGFloat = 3
+        let spacing: CGFloat = 16
+        let horizontalInset: CGFloat = 48
+        let availableWidth = collectionView.bounds.width - horizontalInset - (spacing * (columns - 1))
+        let width = floor(availableWidth / columns)
+        return CGSize(width: width, height: 168)
     }
 
     private func setGroup(_ group: SmartDevice, isOn: Bool, cell: GroupCardCell?) {
@@ -172,10 +210,11 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
         service.toggleDevice(target) { [weak self] result in
             DispatchQueue.main.async {
+                guard let self = self else { return }
                 switch result {
                 case .success:
-                    if let index = self?.lightGroups.firstIndex(where: { $0.id == group.id }) {
-                        self?.lightGroups[index] = SmartDevice(
+                    if let index = self.lightGroups.firstIndex(where: { $0.id == group.id }) {
+                        self.lightGroups[index] = SmartDevice(
                             id: group.id,
                             name: group.name,
                             kind: group.kind,
@@ -187,11 +226,11 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
                         )
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        self?.service.refreshNow()
+                        self.service.refreshNow()
                     }
                 case .failure(let error):
                     cell?.setPoweredOn(group.isOn)
-                    self?.presentAlert(title: "Could Not Toggle", message: error.localizedDescription)
+                    self.presentAlert(title: "Could Not Toggle", message: error.localizedDescription)
                 }
             }
         }

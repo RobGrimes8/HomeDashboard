@@ -10,14 +10,12 @@ final class LightListViewController: UIViewController, DashboardServiceDelegate,
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "All Lights"
-        view.backgroundColor = DashboardTheme.background
-
-        navigationController?.navigationBar.barStyle = .black
-        navigationController?.navigationBar.barTintColor = DashboardTheme.navBar
-        navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
+        view.backgroundColor = .clear
+        DashboardTheme.installBackground(in: view)
+        DashboardTheme.styleNavigationBar(navigationController?.navigationBar)
 
         tableView.backgroundColor = .clear
-        tableView.separatorColor = UIColor(white: 0.22, alpha: 1.0)
+        tableView.separatorStyle = .none
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(LightControlCell.self, forCellReuseIdentifier: LightControlCell.reuseID)
@@ -103,7 +101,7 @@ final class LightListViewController: UIViewController, DashboardServiceDelegate,
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 108
+        return 120
     }
 
     private func presentAlert(title: String, message: String) {
