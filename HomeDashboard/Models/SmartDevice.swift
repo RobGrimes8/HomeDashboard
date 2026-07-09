@@ -17,6 +17,7 @@ struct SmartDevice: Codable, Equatable {
     var isOn: Bool
     var brightness: Int?
     var volume: Int?
+    var nowPlaying: String?
     var isReachable: Bool
 
     init(
@@ -27,6 +28,7 @@ struct SmartDevice: Codable, Equatable {
         isOn: Bool = false,
         brightness: Int? = nil,
         volume: Int? = nil,
+        nowPlaying: String? = nil,
         isReachable: Bool = true
     ) {
         self.id = id
@@ -36,6 +38,7 @@ struct SmartDevice: Codable, Equatable {
         self.isOn = isOn
         self.brightness = brightness
         self.volume = volume
+        self.nowPlaying = nowPlaying
         self.isReachable = isReachable
     }
 }

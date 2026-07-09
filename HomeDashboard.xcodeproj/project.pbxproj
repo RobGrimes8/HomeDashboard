@@ -10,6 +10,8 @@
 		12A695226EF742AF88FE1AAE /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C58BF81134B430091E7F17E /* AppConfig.swift */; };
 		DBGBF001 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBGREF001 /* DebugLog.swift */; };
 		DBGBF002 /* DebugLogViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBGREF002 /* DebugLogViewController.swift */; };
+		SPCBF001 /* SonosSpeakerCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPCREF001 /* SonosSpeakerCardCell.swift */; };
+		SDVBF001 /* SonosSpeakerDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = SDVREF001 /* SonosSpeakerDetailViewController.swift */; };
 		GLBF001 /* GlassPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GLREF001 /* GlassPanelView.swift */; };
 		THBF001 /* DashboardTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = THREF001 /* DashboardTheme.swift */; };
 		GRBF001 /* GroupCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRREF001 /* GroupCardCell.swift */; };
@@ -44,6 +46,8 @@
 		5C58BF81134B430091E7F17E /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		DBGREF001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		DBGREF002 /* DebugLogViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogViewController.swift; sourceTree = "<group>"; };
+		SPCREF001 /* SonosSpeakerCardCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosSpeakerCardCell.swift; sourceTree = "<group>"; };
+		SDVREF001 /* SonosSpeakerDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosSpeakerDetailViewController.swift; sourceTree = "<group>"; };
 		GLREF001 /* GlassPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassPanelView.swift; sourceTree = "<group>"; };
 		THREF001 /* DashboardTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardTheme.swift; sourceTree = "<group>"; };
 		GRREF001 /* GroupCardCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCardCell.swift; sourceTree = "<group>"; };
@@ -142,6 +146,7 @@
 				1F38D825B29B4B64A2935F51 /* DeviceTileCell.swift */,
 				1322BE7466754A8589D48190 /* LightControlCell.swift */,
 				GLREF001 /* GlassPanelView.swift */,
+				SPCREF001 /* SonosSpeakerCardCell.swift */,
 				GRREF001 /* GroupCardCell.swift */,
 				2C5E786CDF5544389DE2ED65 /* SpeakerControlCell.swift */,
 			);
@@ -175,6 +180,7 @@
 				215F65CF967048129BE081D2 /* LightsViewController.swift */,
 				LLREF001 /* LightListViewController.swift */,
 				DE0C44D2A3F14F32B054498A /* SonosViewController.swift */,
+				SDVREF001 /* SonosSpeakerDetailViewController.swift */,
 				E2BD0F42AD9248929C22F639 /* SettingsViewController.swift */,
 				DBGREF002 /* DebugLogViewController.swift */,
 			);
@@ -268,6 +274,8 @@
 				12A695226EF742AF88FE1AAE /* AppConfig.swift in Sources */,
 				DBGBF001 /* DebugLog.swift in Sources */,
 				DBGBF002 /* DebugLogViewController.swift in Sources */,
+				SPCBF001 /* SonosSpeakerCardCell.swift in Sources */,
+				SDVBF001 /* SonosSpeakerDetailViewController.swift in Sources */,
 				GLBF001 /* GlassPanelView.swift in Sources */,
 				THBF001 /* DashboardTheme.swift in Sources */,
 				GRBF001 /* GroupCardCell.swift in Sources */,

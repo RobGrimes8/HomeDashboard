@@ -182,4 +182,32 @@ final class DashboardService {
     func setSpeakerVolume(_ device: SmartDevice, volume: Int, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
         sonosService.setVolume(device.id, volume: volume, completion: completion)
     }
+
+    func adjustSpeakerVolume(_ device: SmartDevice, by delta: Int, completion: @escaping (Result<Int, LocalHTTPError>) -> Void) {
+        sonosService.adjustVolume(device.id, by: delta, completion: completion)
+    }
+
+    func toggleSpeakerPlayback(_ device: SmartDevice, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        if device.isOn {
+            sonosService.pause(device.id, completion: completion)
+        } else {
+            sonosService.play(device.id, completion: completion)
+        }
+    }
+
+    func skipSpeakerTrack(_ device: SmartDevice, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        sonosService.nextTrack(device.id, completion: completion)
+    }
+
+    func previousSpeakerTrack(_ device: SmartDevice, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        sonosService.previousTrack(device.id, completion: completion)
+    }
+
+    func playSpeakerPlaylist(
+        _ device: SmartDevice,
+        playlist: AppConfig.SpotifyPlaylist,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        sonosService.playSpotifyPlaylist(on: device.id, title: playlist.name, uri: playlist.uri, completion: completion)
+    }
 }

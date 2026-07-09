@@ -41,6 +41,7 @@ final class SonosService {
                         isOn: false,
                         brightness: nil,
                         volume: nil,
+                        nowPlaying: nil,
                         isReachable: false
                     ))
                 }
@@ -88,12 +89,163 @@ final class SonosService {
         }
     }
 
+    func adjustVolume(_ speakerIP: String, by delta: Int, completion: @escaping (Result<Int, LocalHTTPError>) -> Void) {
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:SetRelativeVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+              <InstanceID>0</InstanceID>
+              <Channel>Master</Channel>
+              <Adjustment>\(delta)</Adjustment>
+            </u:SetRelativeVolume>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        performSOAP(
+            ip: speakerIP,
+            controlPath: "/MediaRenderer/RenderingControl/Control",
+            action: "urn:schemas-upnp-org:service:RenderingControl:1#SetRelativeVolume",
+            body: body
+        ) { result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let xml):
+                if let volumeString = self.extractXMLValue(named: "NewVolume", from: xml),
+                   let volume = Int(volumeString) {
+                    completion(.success(volume))
+                } else {
+                    completion(.failure(.decodingFailed))
+                }
+            }
+        }
+    }
+
+    func play(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        avTransportAction(
+            ip: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#Play",
+            body: """
+            <?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+              <s:Body>
+                <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                  <InstanceID>0</InstanceID>
+                  <Speed>1</Speed>
+                </u:Play>
+              </s:Body>
+            </s:Envelope>
+            """,
+            completion: completion
+        )
+    }
+
+    func pause(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        avTransportAction(
+            ip: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#Pause",
+            body: """
+            <?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+              <s:Body>
+                <u:Pause xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                  <InstanceID>0</InstanceID>
+                </u:Pause>
+              </s:Body>
+            </s:Envelope>
+            """,
+            completion: completion
+        )
+    }
+
+    func nextTrack(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        avTransportAction(
+            ip: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#Next",
+            body: """
+            <?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+              <s:Body>
+                <u:Next xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                  <InstanceID>0</InstanceID>
+                </u:Next>
+              </s:Body>
+            </s:Envelope>
+            """,
+            completion: completion
+        )
+    }
+
+    func previousTrack(_ speakerIP: String, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        avTransportAction(
+            ip: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#Previous",
+            body: """
+            <?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+              <s:Body>
+                <u:Previous xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                  <InstanceID>0</InstanceID>
+                </u:Previous>
+              </s:Body>
+            </s:Envelope>
+            """,
+            completion: completion
+        )
+    }
+
+    func playSpotifyPlaylist(
+        on speakerIP: String,
+        title: String,
+        uri: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        guard let spotifyURI = normalizeSpotifyURI(uri) else {
+            completion(.failure(.decodingFailed))
+            return
+        }
+
+        guard let transportURI = spotifyTransportURI(from: spotifyURI) else {
+            completion(.failure(.decodingFailed))
+            return
+        }
+
+        let metadata = spotifyPlaylistMetadata(title: title, spotifyURI: spotifyURI, transportURI: transportURI)
+        let escapedURI = transportURI.replacingOccurrences(of: "&", with: "&amp;")
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <CurrentURI>\(escapedURI)</CurrentURI>
+              <CurrentURIMetaData>\(metadata)</CurrentURIMetaData>
+            </u:SetAVTransportURI>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        avTransportAction(
+            ip: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+            body: body
+        ) { [weak self] result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success:
+                self?.play(speakerIP, completion: completion)
+            }
+        }
+    }
+
     private func fetchSpeaker(at ip: String, completion: @escaping (Result<SmartDevice, LocalHTTPError>) -> Void) {
         let group = DispatchGroup()
         var roomName: String?
         var volume: Int?
-        var isPlaying = false
-        var trackTitle: String?
+        var playback = PlaybackStatus(isPlaying: false, nowPlaying: nil)
         var firstError: LocalHTTPError?
         let lock = NSLock()
 
@@ -129,8 +281,7 @@ final class SonosService {
             defer { lock.unlock() }
             switch result {
             case .success(let status):
-                isPlaying = status.isPlaying
-                trackTitle = status.trackTitle
+                playback = status
             case .failure(let error):
                 if firstError == nil { firstError = error }
             }
@@ -138,7 +289,7 @@ final class SonosService {
         }
 
         group.notify(queue: .main) {
-            guard roomName != nil || volume != nil || trackTitle != nil else {
+            guard roomName != nil || volume != nil || playback.nowPlaying != nil else {
                 completion(.failure(firstError ?? .invalidResponse))
                 return
             }
@@ -149,9 +300,10 @@ final class SonosService {
                 name: name,
                 kind: .speaker,
                 room: roomName,
-                isOn: isPlaying,
+                isOn: playback.isPlaying,
                 brightness: nil,
                 volume: volume,
+                nowPlaying: playback.nowPlaying,
                 isReachable: true
             )))
         }
@@ -159,7 +311,7 @@ final class SonosService {
 
     private struct PlaybackStatus {
         let isPlaying: Bool
-        let trackTitle: String?
+        let nowPlaying: String?
     }
 
     private func fetchRoomName(at ip: String, completion: @escaping (Result<String, LocalHTTPError>) -> Void) {
@@ -260,10 +412,82 @@ final class SonosService {
 
                 let isPlaying = xml.contains("<state>PLAYING</state>")
                     || xml.contains("<transportState>PLAYING</transportState>")
-                let trackTitle = self.extractXMLValue(named: "title", from: xml)
-                completion(.success(PlaybackStatus(isPlaying: isPlaying, trackTitle: trackTitle)))
+                let title = self.extractXMLValue(named: "title", from: xml)
+                let artist = self.extractXMLValue(named: "artist", from: xml)
+                let nowPlaying = self.nowPlayingText(title: title, artist: artist, isPlaying: isPlaying)
+                completion(.success(PlaybackStatus(isPlaying: isPlaying, nowPlaying: nowPlaying)))
             }
         }
+    }
+
+    private func nowPlayingText(title: String?, artist: String?, isPlaying: Bool) -> String? {
+        if let title = title, !title.isEmpty {
+            if let artist = artist, !artist.isEmpty {
+                return "\(title) · \(artist)"
+            }
+            return title
+        }
+        return isPlaying ? "Playing" : "Nothing playing"
+    }
+
+    private func avTransportAction(
+        ip: String,
+        action: String,
+        body: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        performSOAP(
+            ip: ip,
+            controlPath: "/MediaRenderer/AVTransport/Control",
+            action: action,
+            body: body
+        ) { result in
+            switch result {
+            case .success:
+                completion(.success(()))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func normalizeSpotifyURI(_ input: String) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("spotify:") {
+            return trimmed
+        }
+
+        if let url = URL(string: trimmed), let host = url.host, host.contains("spotify") {
+            let parts = url.pathComponents.filter { $0 != "/" }
+            if parts.count >= 2, parts[0] == "playlist" {
+                return "spotify:playlist:\(parts[1])"
+            }
+        }
+
+        return nil
+    }
+
+    private func spotifyTransportURI(from spotifyURI: String) -> String? {
+        let encoded = spotifyURI.replacingOccurrences(of: ":", with: "%3a")
+        return "x-sonos-spotify:\(encoded)?sid=9&flags=8224&sn=7"
+    }
+
+    private func spotifyPlaylistMetadata(title: String, spotifyURI: String, transportURI: String) -> String {
+        let encodedURI = spotifyURI.replacingOccurrences(of: ":", with: "%3a")
+        let itemId = "00052024\(encodedURI)"
+        let escapedTitle = xmlEscape(title)
+        let didl = """
+        <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="\(itemId)" parentID="" restricted="true"><dc:title>\(escapedTitle)</dc:title><upnp:class>object.container.playlistContainer</upnp:class><r:contentService><r:containerType>playlist</r:containerType></r:contentService></item></DIDL-Lite>
+        """
+        return xmlEscape(didl)
+    }
+
+    private func xmlEscape(_ string: String) -> String {
+        return string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
     private func performSOAP(

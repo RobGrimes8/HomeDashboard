@@ -8,6 +8,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     private var draftSonosIPs = ""
     private var draftRefresh = ""
     private var draftCustomGroups = ""
+    private var draftSpotifyPlaylists = ""
 
     private enum Section: Int, CaseIterable {
         case devices
@@ -24,6 +25,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         case hueIP
         case hueUser
         case sonosIPs
+        case spotifyPlaylists
         case customGroups
         case refresh
         case testHue
@@ -72,6 +74,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         draftSonosIPs = config.sonosSpeakerIPs.joined(separator: ", ")
         draftRefresh = String(Int(config.refreshIntervalSeconds))
         draftCustomGroups = AppConfig.customGroupsText(from: config.customLightGroups)
+        draftSpotifyPlaylists = AppConfig.playlistsText(from: config.spotifyPlaylists)
     }
 
     func numberOfSections(in tableView: UITableView) -> Int { Section.allCases.count }
@@ -116,7 +119,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         switch row {
         case .hueIP, .hueUser, .sonosIPs, .refresh:
             return 88
-        case .customGroups:
+        case .customGroups, .spotifyPlaylists:
             return 150
         default:
             return 44
@@ -218,7 +221,19 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SettingsMultilineCell.reuseID, for: indexPath) as? SettingsMultilineCell else {
                 return UITableViewCell()
             }
-            cell.configure(title: "Custom Light Groups", value: draftCustomGroups, delegate: self)
+            cell.configure(title: "Custom Light Groups", value: draftCustomGroups, tag: 5, delegate: self)
+            return cell
+
+        case .spotifyPlaylists:
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: SettingsMultilineCell.reuseID, for: indexPath) as? SettingsMultilineCell else {
+                return UITableViewCell()
+            }
+            cell.configure(
+                title: "Spotify Playlists",
+                value: draftSpotifyPlaylists,
+                tag: 6,
+                delegate: self
+            )
             return cell
 
         default:
@@ -297,12 +312,16 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     func textViewDidEndEditing(_ textView: UITextView) {
         if textView.tag == 5 {
             draftCustomGroups = textView.text ?? ""
+        } else if textView.tag == 6 {
+            draftSpotifyPlaylists = textView.text ?? ""
         }
     }
 
     func textViewDidChange(_ textView: UITextView) {
         if textView.tag == 5 {
             draftCustomGroups = textView.text ?? ""
+        } else if textView.tag == 6 {
+            draftSpotifyPlaylists = textView.text ?? ""
         }
     }
 
@@ -334,7 +353,8 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
             sonosSpeakerIPs: sonosIPs,
             refreshIntervalSeconds: TimeInterval(draftRefresh) ?? config.refreshIntervalSeconds,
             requestTimeoutSeconds: config.requestTimeoutSeconds,
-            customLightGroups: AppConfig.parseCustomGroupsText(draftCustomGroups)
+            customLightGroups: AppConfig.parseCustomGroupsText(draftCustomGroups),
+            spotifyPlaylists: AppConfig.parsePlaylistsText(draftSpotifyPlaylists)
         ).sanitized()
     }
 
@@ -400,6 +420,12 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         Sonos:
         1. Find each speaker IP in your router admin page.
         2. Enter comma-separated IPs (e.g. 192.168.1.101, 192.168.1.102).
+        3. Link Spotify in the Sonos app first (Settings → Services).
+
+        Spotify playlists:
+        1. One per line: Name=spotify:playlist:YOUR_ID
+        2. Or paste a share URL after the equals sign.
+        3. Tap a speaker on the Sonos tab, then pick a playlist.
 
         Light groups:
         1. Hue rooms from your bridge appear automatically in Lights → Groups.
@@ -518,7 +544,6 @@ private final class SettingsMultilineCell: UITableViewCell, UITextViewDelegate {
         valueView.autocorrectionType = .no
         valueView.autocapitalizationType = .none
         valueView.layer.cornerRadius = 6
-        valueView.tag = 5
 
         [titleLabel, valueView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -542,9 +567,10 @@ private final class SettingsMultilineCell: UITableViewCell, UITextViewDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(title: String, value: String, delegate: UITextViewDelegate) {
+    func configure(title: String, value: String, tag: Int, delegate: UITextViewDelegate) {
         titleLabel.text = title
         valueView.text = value
+        valueView.tag = tag
         externalDelegate = delegate
     }
 
