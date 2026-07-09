@@ -98,6 +98,8 @@ final class DashboardService {
             let customGroups = self.lightsService.buildCustomGroups(from: lights)
             let allGroups = lightGroups + customGroups
 
+            DebugLog.shared.log("Refresh: \(allGroups.count) groups, \(lights.count) lights, \(speakers.count) speakers")
+
             let snapshot = DashboardSnapshot(
                 lightGroups: allGroups,
                 lights: lights,
@@ -119,6 +121,7 @@ final class DashboardService {
     }
 
     func toggleDevice(_ device: SmartDevice, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        DebugLog.shared.log("Toggle \(device.name) (\(device.kind.rawValue)) → \(!device.isOn ? "on" : "off")")
         switch device.kind {
         case .lightGroup:
             if device.id.hasPrefix("group-") {

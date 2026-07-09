@@ -48,6 +48,7 @@ final class LocalHTTPClient {
 
         let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
+                DebugLog.shared.error("GET \(urlString) → \(error.localizedDescription)")
                 completion(.failure(.transport(error)))
                 return
             }
@@ -61,10 +62,18 @@ final class LocalHTTPClient {
             }
 
             guard (200...299).contains(http.statusCode) else {
+                DebugLog.shared.error("GET \(urlString) → HTTP \(http.statusCode)")
                 completion(.failure(.httpStatus(http.statusCode)))
                 return
             }
 
+            if let hueError = Self.hueError(from: data) {
+                DebugLog.shared.error("GET \(urlString) → \(hueError.localizedDescription ?? "Hue error")")
+                completion(.failure(hueError))
+                return
+            }
+
+            DebugLog.shared.http("GET", url: urlString, detail: "OK \(data.count) bytes")
             completion(.success(data))
         }
         task.resume()
@@ -102,6 +111,7 @@ final class LocalHTTPClient {
 
         let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
+                DebugLog.shared.error("\(method) \(urlString) → \(error.localizedDescription)")
                 completion(.failure(.transport(error)))
                 return
             }
@@ -112,15 +122,18 @@ final class LocalHTTPClient {
             }
 
             guard (200...299).contains(http.statusCode) else {
+                DebugLog.shared.error("\(method) \(urlString) → HTTP \(http.statusCode)")
                 completion(.failure(.httpStatus(http.statusCode)))
                 return
             }
 
             if let data = data, let hueError = Self.hueError(from: data) {
+                DebugLog.shared.error("\(method) \(urlString) → \(hueError.localizedDescription ?? "Hue error")")
                 completion(.failure(hueError))
                 return
             }
 
+            DebugLog.shared.http(method, url: urlString, detail: "OK \(http.statusCode)")
             completion(.success(()))
         }
         task.resume()

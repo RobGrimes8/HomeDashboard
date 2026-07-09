@@ -14,6 +14,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window.tintColor = UIColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1.0)
         window.makeKeyAndVisible()
         self.window = window
+        DebugLog.shared.log("App launched")
         return true
     }
 }

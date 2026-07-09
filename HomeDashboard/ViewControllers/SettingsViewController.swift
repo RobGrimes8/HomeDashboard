@@ -9,6 +9,17 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     private var draftRefresh = ""
     private var draftCustomGroups = ""
 
+    private enum Section: Int, CaseIterable {
+        case devices
+        case debug
+    }
+
+    private enum DebugRow: Int, CaseIterable {
+        case enabled
+        case viewLog
+        case clearLog
+    }
+
     private enum Row: Int, CaseIterable {
         case hueIP
         case hueUser
@@ -65,26 +76,45 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         draftCustomGroups = AppConfig.customGroupsText(from: config.customLightGroups)
     }
 
-    func numberOfSections(in tableView: UITableView) -> Int { 1 }
+    func numberOfSections(in tableView: UITableView) -> Int { Section.allCases.count }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return Row.allCases.count
+        guard let section = Section(rawValue: section) else { return 0 }
+        switch section {
+        case .devices:
+            return Row.allCases.count
+        case .debug:
+            return DebugRow.allCases.count
+        }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return "Local Network Devices"
+        guard let section = Section(rawValue: section) else { return nil }
+        switch section {
+        case .devices:
+            return "Local Network Devices"
+        case .debug:
+            return "Development"
+        }
     }
 
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if config.isHueConfigured {
-            let suffix = String(config.hueUsername.suffix(4))
-            return "Saved Hue user ends with …\(suffix). Custom groups: one per line as Name=Light 1, Light 2."
+        guard let section = Section(rawValue: section) else { return nil }
+        switch section {
+        case .devices:
+            if config.isHueConfigured {
+                let suffix = String(config.hueUsername.suffix(4))
+                return "Saved Hue user ends with …\(suffix). Custom groups: one per line as Name=Light 1, Light 2."
+            }
+            return "Enter your Hue bridge IP and API username, then tap Test Hue Connection."
+        case .debug:
+            return "Shows HTTP requests and errors on-device. Useful while Xcode debugger is unavailable on iOS 12."
         }
-        return "Enter your Hue bridge IP and API username, then tap Test Hue Connection."
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard let row = Row(rawValue: indexPath.row) else { return 44 }
+        guard Section(rawValue: indexPath.section) == .devices,
+              let row = Row(rawValue: indexPath.row) else { return 44 }
         switch row {
         case .hueIP, .hueUser, .sonosIPs, .refresh:
             return 88
@@ -96,9 +126,46 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let row = Row(rawValue: indexPath.row) else {
+        guard let section = Section(rawValue: indexPath.section) else {
             return UITableViewCell()
         }
+
+        switch section {
+        case .debug:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "action-cell", for: indexPath)
+            cell.backgroundColor = UIColor(white: 0.10, alpha: 1.0)
+            cell.textLabel?.textColor = .white
+            cell.textLabel?.textAlignment = .left
+            cell.accessoryType = .none
+            cell.accessoryView = nil
+            cell.selectionStyle = .default
+
+            guard let row = DebugRow(rawValue: indexPath.row) else { return cell }
+
+            switch row {
+            case .enabled:
+                cell.textLabel?.text = "Enable Debug Log"
+                cell.selectionStyle = .none
+                let toggle = UISwitch()
+                toggle.isOn = DebugLog.shared.isEnabled
+                toggle.onTintColor = UIColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1.0)
+                toggle.addTarget(self, action: #selector(debugToggleChanged(_:)), for: .valueChanged)
+                cell.accessoryView = toggle
+            case .viewLog:
+                cell.textLabel?.text = "View Debug Log"
+                cell.accessoryType = .disclosureIndicator
+            case .clearLog:
+                cell.textLabel?.text = "Clear Debug Log"
+                cell.textLabel?.textColor = UIColor(red: 1.0, green: 0.45, blue: 0.35, alpha: 1.0)
+                cell.textLabel?.textAlignment = .center
+            }
+
+            return cell
+
+        case .devices:
+            guard let row = Row(rawValue: indexPath.row) else {
+                return UITableViewCell()
+            }
 
         switch row {
         case .hueIP, .hueUser, .sonosIPs, .refresh:
@@ -184,23 +251,44 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
 
             return cell
         }
+        }
+    }
+
+    @objc private func debugToggleChanged(_ sender: UISwitch) {
+        DebugLog.shared.isEnabled = sender.isOn
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let row = Row(rawValue: indexPath.row) else { return }
 
-        view.endEditing(true)
+        guard let section = Section(rawValue: indexPath.section) else { return }
 
-        switch row {
-        case .testHue:
-            testHueConnection()
-        case .save:
-            saveSettings()
-        case .help:
-            showHelp()
-        default:
-            break
+        switch section {
+        case .debug:
+            guard let row = DebugRow(rawValue: indexPath.row) else { return }
+            switch row {
+            case .viewLog:
+                navigationController?.pushViewController(DebugLogViewController(), animated: true)
+            case .clearLog:
+                DebugLog.shared.clear()
+                presentAlert(title: "Cleared", message: "Debug log cleared.")
+            case .enabled:
+                break
+            }
+        case .devices:
+            guard let row = Row(rawValue: indexPath.row) else { return }
+            view.endEditing(true)
+
+            switch row {
+            case .testHue:
+                testHueConnection()
+            case .save:
+                saveSettings()
+            case .help:
+                showHelp()
+            default:
+                break
+            }
         }
     }
 

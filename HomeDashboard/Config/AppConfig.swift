@@ -115,6 +115,7 @@ struct AppConfig: Codable {
         let url = documents.appendingPathComponent("Config.json")
         do {
             try data.write(to: url, options: .atomic)
+            DebugLog.shared.log("Config saved to Documents (Hue …\(clean.hueUsername.suffix(4)), \(clean.customLightGroups.count) custom groups)")
             NotificationCenter.default.post(name: .appConfigDidChange, object: nil)
             return true
         } catch {
