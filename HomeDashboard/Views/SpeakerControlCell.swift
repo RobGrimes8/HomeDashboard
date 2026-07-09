@@ -9,6 +9,7 @@ final class SpeakerControlCell: UITableViewCell {
     private let glassPanel = GlassPanelView()
     private let nameLabel = UILabel()
     private let detailLabel = UILabel()
+    private let volumeLabel = UILabel()
     private let slider = UISlider()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -25,19 +26,24 @@ final class SpeakerControlCell: UITableViewCell {
         detailLabel.font = UIFont.systemFont(ofSize: 13)
         detailLabel.textColor = DashboardTheme.textSecondary
 
+        volumeLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        volumeLabel.textColor = DashboardTheme.textPrimary
+        volumeLabel.textAlignment = .right
+
         slider.minimumValue = 0
         slider.maximumValue = 100
         slider.minimumTrackTintColor = DashboardTheme.accent
         slider.maximumTrackTintColor = UIColor(white: 1.0, alpha: 0.18)
         slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
 
-        [glassPanel, nameLabel, detailLabel, slider].forEach {
+        [glassPanel, nameLabel, detailLabel, volumeLabel, slider].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
         contentView.addSubview(glassPanel)
         glassPanel.addSubview(nameLabel)
         glassPanel.addSubview(detailLabel)
+        glassPanel.addSubview(volumeLabel)
         glassPanel.addSubview(slider)
 
         NSLayoutConstraint.activate([
@@ -52,11 +58,15 @@ final class SpeakerControlCell: UITableViewCell {
 
             detailLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
             detailLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            detailLabel.trailingAnchor.constraint(equalTo: glassPanel.trailingAnchor, constant: -14),
+            detailLabel.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
 
-            slider.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: 10),
+            volumeLabel.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: 10),
+            volumeLabel.trailingAnchor.constraint(equalTo: glassPanel.trailingAnchor, constant: -14),
+            volumeLabel.widthAnchor.constraint(equalToConstant: 36),
+
+            slider.centerYAnchor.constraint(equalTo: volumeLabel.centerYAnchor),
             slider.leadingAnchor.constraint(equalTo: glassPanel.leadingAnchor, constant: 14),
-            slider.trailingAnchor.constraint(equalTo: glassPanel.trailingAnchor, constant: -14),
+            slider.trailingAnchor.constraint(equalTo: volumeLabel.leadingAnchor, constant: -10),
             slider.bottomAnchor.constraint(equalTo: glassPanel.bottomAnchor, constant: -12)
         ])
     }
@@ -69,24 +79,35 @@ final class SpeakerControlCell: UITableViewCell {
         nameLabel.text = speaker.name
         if speaker.isReachable {
             let state = speaker.isOn ? "Playing" : "Idle"
-            detailLabel.text = "\(state) · \(speaker.id)"
+            detailLabel.text = state
         } else {
-            detailLabel.text = "Unreachable · \(speaker.id)"
+            detailLabel.text = "Unreachable"
         }
         glassPanel.setGlowActive(speaker.isOn)
-        slider.value = Float(speaker.volume ?? 0)
+        updateVolumeDisplay(speaker.volume ?? 0)
         slider.isEnabled = speaker.isReachable
+    }
+
+    func setVolume(_ volume: Int) {
+        updateVolumeDisplay(volume)
     }
 
     func configurePlaceholder() {
         nameLabel.text = "Configure Sonos in Settings"
         detailLabel.text = "Enter speaker IP addresses"
         glassPanel.setGlowActive(false)
-        slider.value = 0
+        updateVolumeDisplay(0)
         slider.isEnabled = false
     }
 
+    private func updateVolumeDisplay(_ volume: Int) {
+        slider.value = Float(volume)
+        volumeLabel.text = "\(volume)"
+    }
+
     @objc private func sliderChanged() {
-        onVolumeChanged?(Int(slider.value))
+        let volume = Int(slider.value.rounded())
+        updateVolumeDisplay(volume)
+        onVolumeChanged?(volume)
     }
 }

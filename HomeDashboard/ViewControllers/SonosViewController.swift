@@ -78,10 +78,20 @@ final class SonosViewController: UIViewController, DashboardServiceDelegate, UIT
             let speaker = speakers[indexPath.row]
             cell.configure(with: speaker)
             cell.onVolumeChanged = { [weak self] value in
-                self?.service.setSpeakerVolume(speaker, volume: value) { result in
+                guard let self = self else { return }
+                if let index = self.speakers.firstIndex(where: { $0.id == speaker.id }) {
+                    var updated = self.speakers[index]
+                    updated.volume = value
+                    self.speakers[index] = updated
+                }
+                cell.setVolume(value)
+                self.service.setSpeakerVolume(speaker, volume: value) { result in
                     DispatchQueue.main.async {
                         if case .failure(let error) = result {
-                            self?.presentAlert(title: "Volume Failed", message: error.localizedDescription)
+                            if let index = self.speakers.firstIndex(where: { $0.id == speaker.id }) {
+                                cell.setVolume(self.speakers[index].volume ?? value)
+                            }
+                            self.presentAlert(title: "Volume Failed", message: error.localizedDescription)
                         }
                     }
                 }
