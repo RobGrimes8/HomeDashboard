@@ -1,0 +1,10 @@
+{
+  "hueBridgeIP": "192.168.1.100",
+  "hueUsername": "YOUR_HUE_API_USERNAME",
+  "sonosSpeakerIPs": [
+    "192.168.1.101",
+    "192.168.1.102"
+  ],
+  "refreshIntervalSeconds": 15,
+  "requestTimeoutSeconds": 8
+}
