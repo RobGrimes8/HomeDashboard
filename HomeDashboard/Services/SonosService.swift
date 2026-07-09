@@ -278,7 +278,11 @@ final class SonosService {
             )
         }
 
-        if let parsed = extractPlaylistIDFromFavorite(uri: favorite.uri, metadata: favorite.metadata) {
+        if let parsed = extractPlaylistIDFromFavorite(
+            uri: favorite.uri,
+            metadata: favorite.metadata,
+            objectID: favorite.objectID
+        ) {
             startParsed(parsed)
             return
         }
@@ -289,15 +293,166 @@ final class SonosService {
         }
 
         withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
-            self?.resolveFavoritePlayback(at: coordinatorIP, objectID: objectID) { result in
+            self?.resolveFavoritePlaylistID(at: coordinatorIP, objectID: objectID) { result in
+                guard let self = self else { return }
                 switch result {
                 case .failure(let error):
                     completion(.failure(error))
-                case .success(let resolved):
-                    if let parsed = self?.extractPlaylistIDFromFavorite(uri: resolved.uri, metadata: resolved.metadata) {
-                        startParsed(parsed)
-                    } else {
-                        completion(.failure(self?.sonosError("Sonos returned playlist data without a Spotify ID.") ?? .decodingFailed))
+                case .success(.spotifyID(let parsed)):
+                    startParsed(parsed)
+                case .success(.containerURI(let uri)):
+                    DebugLog.shared.log("Sonos favorite playlist via container URI: \(uri)")
+                    self.playContainerURI(on: speakerIP, uri: uri, title: favorite.title, completion: completion)
+                }
+            }
+        }
+    }
+
+    private enum ResolvedFavoritePlaylist {
+        case spotifyID(ParsedSpotifyURI)
+        case containerURI(String)
+    }
+
+    private func resolveFavoritePlaylistID(
+        at ip: String,
+        objectID: String,
+        completion: @escaping (Result<ResolvedFavoritePlaylist, LocalHTTPError>) -> Void
+    ) {
+        browseSonosFavorite(at: ip, objectID: objectID, flag: "BrowseMetadata") { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let resultXML):
+                if let parsed = self.extractPlaylistIDFromFavorite(uri: "", metadata: resultXML, objectID: objectID) {
+                    completion(.success(.spotifyID(parsed)))
+                    return
+                }
+                if let uri = self.extractContainerURI(fromBrowseResult: resultXML), !uri.isEmpty {
+                    if let parsed = self.extractPlaylistIDFromFavorite(uri: uri, metadata: resultXML, objectID: objectID) {
+                        completion(.success(.spotifyID(parsed)))
+                        return
+                    }
+                    completion(.success(.containerURI(uri)))
+                    return
+                }
+
+                self.browseSonosFavorite(at: ip, objectID: objectID, flag: "BrowseDirectChildren") { childrenResult in
+                    switch childrenResult {
+                    case .failure(let error):
+                        completion(.failure(error))
+                    case .success(let childrenXML):
+                        if let parsed = self.extractPlaylistIDFromFavorite(uri: "", metadata: childrenXML, objectID: objectID) {
+                            completion(.success(.spotifyID(parsed)))
+                            return
+                        }
+                        if let uri = self.extractContainerURI(fromBrowseResult: childrenXML), !uri.isEmpty {
+                            if let parsed = self.extractPlaylistIDFromFavorite(uri: uri, metadata: childrenXML, objectID: objectID) {
+                                completion(.success(.spotifyID(parsed)))
+                                return
+                            }
+                            completion(.success(.containerURI(uri)))
+                            return
+                        }
+                        DebugLog.shared.error("Sonos browse \(objectID) had no Spotify playlist ID")
+                        completion(.failure(self.sonosError("Sonos returned playlist data without a Spotify ID.")))
+                    }
+                }
+            }
+        }
+    }
+
+    private func browseSonosFavorite(
+        at ip: String,
+        objectID: String,
+        flag: String,
+        completion: @escaping (Result<String, LocalHTTPError>) -> Void
+    ) {
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+              <ObjectID>\(objectID)</ObjectID>
+              <BrowseFlag>\(flag)</BrowseFlag>
+              <Filter>*</Filter>
+              <StartingIndex>0</StartingIndex>
+              <RequestedCount>50</RequestedCount>
+              <SortCriteria></SortCriteria>
+            </u:Browse>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        performSOAP(
+            ip: ip,
+            controlPath: "/MediaServer/ContentDirectory/Control",
+            action: "urn:schemas-upnp-org:service:ContentDirectory:1#Browse",
+            body: body
+        ) { result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let xml):
+                guard let resultXML = self.extractXMLValue(named: "Result", from: xml) else {
+                    completion(.failure(self.sonosError("Sonos did not return playlist metadata.")))
+                    return
+                }
+                completion(.success(resultXML))
+            }
+        }
+    }
+
+    private func extractContainerURI(fromBrowseResult resultXML: String) -> String? {
+        let favorites = parseSonosFavoriteItems(from: resultXML)
+        if let favorite = favorites.first(where: { $0.uri.contains("cpcontainer") }) {
+            return favorite.uri
+        }
+        if let favorite = favorites.first, !favorite.uri.isEmpty {
+            return favorite.uri
+        }
+        if let favorite = favorites.first {
+            let decodedMeta = decodeHTMLEntities(favorite.metadata)
+            let itemID = favorite.objectID ?? ""
+            if let uri = extractPlaybackURI(from: decodedMeta, itemID: itemID), !uri.isEmpty {
+                return uri
+            }
+            let decoded = decodeHTMLEntities(resultXML)
+            if let uri = extractPlaybackURI(from: decoded, itemID: itemID), !uri.isEmpty {
+                return uri
+            }
+        }
+        let decoded = decodeHTMLEntities(resultXML)
+        if let uri = firstRegexMatch("x-rincon-cpcontainer:[^<\\s\"&]+", in: decoded) {
+            return decodeHTMLEntities(uri)
+        }
+        return nil
+    }
+
+    private func playContainerURI(
+        on speakerIP: String,
+        uri: String,
+        title: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        clearSpeakerQueue(on: speakerIP) { [weak self] _ in
+            self?.addURIToQueue(
+                on: speakerIP,
+                uri: uri,
+                metadata: "",
+                label: "favorite-container"
+            ) { result in
+                guard let self = self else { return }
+                switch result {
+                case .failure(let error):
+                    completion(.failure(error))
+                case .success(let trackNumber):
+                    self.performPlay(on: speakerIP) { playResult in
+                        if case .success = playResult {
+                            completion(.success(()))
+                            return
+                        }
+                        self.playFromQueueTrack(on: speakerIP, trackNumber: trackNumber, completion: completion)
                     }
                 }
             }
@@ -526,29 +681,62 @@ final class SonosService {
         }
     }
 
-    private func extractPlaylistIDFromFavorite(uri: String, metadata: String) -> ParsedSpotifyURI? {
-        let decoded = decodeHTMLEntities(uri + metadata)
+    private func extractPlaylistIDFromFavorite(
+        uri: String,
+        metadata: String,
+        objectID: String? = nil
+    ) -> ParsedSpotifyURI? {
+        var text = decodeHTMLEntities(uri + metadata)
+        if let objectID = objectID {
+            text += decodeHTMLEntities(objectID)
+        }
+        return extractPlaylistIDFromText(text)
+    }
+
+    private func extractPlaylistIDFromText(_ text: String) -> ParsedSpotifyURI? {
+        var normalized = text.replacingOccurrences(of: "%3A", with: "%3a", options: .caseInsensitive)
+
         let patterns = [
-            "spotify%3aplaylist%3a([A-Za-z0-9]+)",
-            "spotify%3auser%3aspotify%3aplaylist%3a([A-Za-z0-9]+)",
-            "spotify:playlist:([A-Za-z0-9]+)",
-            "1006206cspotify%3aplaylist%3a([A-Za-z0-9]+)",
-            "0006206cspotify%3auser%3aspotify%3aplaylist%3a([A-Za-z0-9]+)"
+            "spotify%3auser%3a[^%\\s\"]+?%3aplaylist%3a([A-Za-z0-9_-]+)",
+            "spotify%3aplaylist%3a([A-Za-z0-9_-]+)",
+            "spotify:user:[^:\\s\"]+:playlist:([A-Za-z0-9_-]+)",
+            "spotify:playlist:([A-Za-z0-9_-]+)",
+            "open\\.spotify\\.com/playlist/([A-Za-z0-9_-]+)",
+            "(?:1006206c|0006206c)spotify%3a(?:user%3a[^%]+%3a)?playlist%3a([A-Za-z0-9_-]+)"
         ]
         for pattern in patterns {
-            guard
-                let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-                let result = regex.firstMatch(in: decoded, options: [], range: NSRange(decoded.startIndex..., in: decoded)),
-                let idRange = Range(result.range(at: 1), in: decoded)
-            else {
-                continue
-            }
-            let id = String(decoded[idRange])
-            if !id.isEmpty {
+            if let id = firstCaptureGroup(pattern: pattern, in: normalized), !id.isEmpty {
                 return ParsedSpotifyURI(kind: "playlist", id: id)
             }
         }
+
+        if let containerURI = firstRegexMatch("x-rincon-cpcontainer:([^\\s\"<&?]+)", in: normalized) {
+            let payload = String(containerURI.dropFirst("x-rincon-cpcontainer:".count))
+            if let parsed = extractPlaylistIDFromText(payload) {
+                return parsed
+            }
+        }
+
+        let colonDecoded = normalized.replacingOccurrences(of: "%3a", with: ":", options: .caseInsensitive)
+        if let spotifyToken = firstRegexMatch("spotify:[^\\s\"<&]+", in: colonDecoded),
+           let parsed = parseSpotifyURI(spotifyToken),
+           parsed.kind == "playlist" {
+            return parsed
+        }
+
         return nil
+    }
+
+    private func firstCaptureGroup(pattern: String, in text: String) -> String? {
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+            let match = regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)),
+            match.numberOfRanges > 1,
+            let range = Range(match.range(at: 1), in: text)
+        else {
+            return nil
+        }
+        return String(text[range])
     }
 
     private func resolveFavoritePlayback(
@@ -689,7 +877,10 @@ final class SonosService {
         }
 
         if !itemID.hasPrefix("FV:2/") {
-            if itemID.contains("playlist") || itemID.contains("spotify") || itemID.hasPrefix("1006206c") || itemID.hasPrefix("0006206c") {
+            if itemID.contains("spotify") || itemID.hasPrefix("1006206c") || itemID.hasPrefix("0006206c") {
+                return "x-rincon-cpcontainer:\(itemID)"
+            }
+            if itemID.contains("playlist") {
                 return "x-rincon-cpcontainer:\(itemID)"
             }
         }
@@ -1610,8 +1801,12 @@ final class SonosService {
         if trimmed.hasPrefix("spotify:") {
             let withoutQuery = trimmed.split(separator: "?").first.map(String.init) ?? trimmed
             let parts = withoutQuery.split(separator: ":").map(String.init)
-            guard parts.count == 3, parts[0] == "spotify", !parts[2].isEmpty else { return nil }
-            return ParsedSpotifyURI(kind: parts[1], id: parts[2])
+            if parts.count == 3, parts[0] == "spotify", !parts[2].isEmpty {
+                return ParsedSpotifyURI(kind: parts[1], id: parts[2])
+            }
+            if parts.count == 5, parts[0] == "spotify", parts[1] == "user", parts[3] == "playlist", !parts[4].isEmpty {
+                return ParsedSpotifyURI(kind: "playlist", id: parts[4])
+            }
         }
 
         if let url = URL(string: trimmed), let host = url.host, host.contains("spotify") {
