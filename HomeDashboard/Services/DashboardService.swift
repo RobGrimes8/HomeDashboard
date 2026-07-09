@@ -210,4 +210,19 @@ final class DashboardService {
     ) {
         sonosService.playSpotifyPlaylist(on: device.id, title: playlist.name, uri: playlist.uri, completion: completion)
     }
+
+    func fetchSpeakerFavorites(
+        _ device: SmartDevice,
+        completion: @escaping (Result<[SonosFavorite], LocalHTTPError>) -> Void
+    ) {
+        sonosService.fetchFavorites(on: device.id, completion: completion)
+    }
+
+    func playSpeakerFavorite(
+        _ device: SmartDevice,
+        favorite: SonosFavorite,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        sonosService.playFavorite(on: device.id, favorite: favorite, completion: completion)
+    }
 }

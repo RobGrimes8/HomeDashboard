@@ -423,12 +423,10 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         3. For grouped rooms, the main speaker IP is safest (not surround satellites).
         4. Link Spotify in the Sonos app first (Settings → Services).
 
-        Spotify playlists:
-        1. Link Spotify in the Sonos app first (Settings → Services).
-        2. Spotify Premium is required for Sonos playback.
-        3. RECOMMENDED: In the Sonos app, add each playlist to My Sonos → Favorites (heart icon). HomeDashboard will use Sonos’s own URI/metadata for reliable playback.
-        4. Also add playlists here: Name=spotify:playlist:YOUR_ID (or paste a share URL).
-        5. Tap a speaker on the Sonos tab, then pick a playlist.
+        Playlists:
+        1. In the Sonos app, tap ♥ on playlists under My Sonos → Favorites.
+        2. Tap a speaker in HomeDashboard — favorites appear under "Sonos Favorites".
+        3. Optional: add extra playlists in Settings (Name=spotify:playlist:ID).
 
         Light groups:
         1. Hue rooms from your bridge appear automatically in Lights → Groups.

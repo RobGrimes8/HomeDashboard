@@ -212,6 +212,35 @@ final class SonosService {
         }
     }
 
+    func fetchFavorites(on speakerIP: String, completion: @escaping (Result<[SonosFavorite], LocalHTTPError>) -> Void) {
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.fetchSonosFavorites(at: coordinatorIP) { items in
+                DebugLog.shared.log("Sonos favorites: \(items.count) on \(coordinatorIP)")
+                completion(.success(items))
+            }
+        }
+    }
+
+    func playFavorite(on speakerIP: String, favorite: SonosFavorite, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            guard let self = self else { return }
+            DebugLog.shared.log("Play Sonos favorite: \(favorite.title)")
+            self.setSpotifyTransport(
+                on: coordinatorIP,
+                uri: favorite.uri,
+                metadata: favorite.metadata,
+                label: "favorite"
+            ) { result in
+                switch result {
+                case .failure(let error):
+                    completion(.failure(error))
+                case .success:
+                    self.performPlay(on: coordinatorIP, completion: completion)
+                }
+            }
+        }
+    }
+
     func playSpotifyPlaylist(
         on speakerIP: String,
         title: String,
@@ -250,12 +279,6 @@ final class SonosService {
         }
     }
 
-    private struct SonosFavoriteItem {
-        let title: String
-        let uri: String
-        let metadata: String
-    }
-
     private func playSpotifyFromFavorites(
         on speakerIP: String,
         playlistID: String,
@@ -291,7 +314,7 @@ final class SonosService {
         }
     }
 
-    private func fetchSonosFavorites(at ip: String, completion: @escaping ([SonosFavoriteItem]) -> Void) {
+    private func fetchSonosFavorites(at ip: String, completion: @escaping ([SonosFavorite]) -> Void) {
         let body = """
         <?xml version="1.0" encoding="utf-8"?>
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
@@ -327,7 +350,7 @@ final class SonosService {
         }
     }
 
-    private func parseSonosFavoriteItems(from resultXML: String) -> [SonosFavoriteItem] {
+    private func parseSonosFavoriteItems(from resultXML: String) -> [SonosFavorite] {
         let decoded = decodeHTMLEntities(resultXML)
         let itemPattern = "<item[^>]*id=\"([^\"]+)\"[^>]*>(.*?)</item>"
         guard let regex = try? NSRegularExpression(pattern: itemPattern, options: [.dotMatchesLineSeparators]) else {
@@ -346,7 +369,7 @@ final class SonosService {
 
             let itemID = String(decoded[itemIDRange])
             let body = String(decoded[bodyRange])
-            guard let uri = extractResURI(from: body), uri.contains("spotify") || uri.contains("playlist") else {
+            guard let uri = extractResURI(from: body), !uri.isEmpty else {
                 return nil
             }
 
@@ -354,7 +377,7 @@ final class SonosService {
             let metadataDIDL = """
             <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="\(itemID)" parentID="-1" restricted="true">\(body)</item></DIDL-Lite>
             """
-            return SonosFavoriteItem(
+            return SonosFavorite(
                 title: title,
                 uri: uri,
                 metadata: xmlEscape(metadataDIDL)

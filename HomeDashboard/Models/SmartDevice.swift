@@ -43,6 +43,12 @@ struct SmartDevice: Codable, Equatable {
     }
 }
 
+struct SonosFavorite: Equatable {
+    let title: String
+    let uri: String
+    let metadata: String
+}
+
 struct DashboardSnapshot {
     let lightGroups: [SmartDevice]
     let lights: [SmartDevice]

@@ -2,9 +2,16 @@ import UIKit
 
 final class SonosSpeakerDetailViewController: UIViewController, DashboardServiceDelegate, UITableViewDataSource, UITableViewDelegate {
 
+    private enum Section: Int, CaseIterable {
+        case sonosFavorites
+        case configuredPlaylists
+    }
+
     private var speaker: SmartDevice
     private let service: DashboardService
+    private var sonosFavorites: [SonosFavorite] = []
     private var playlists: [AppConfig.SpotifyPlaylist] = []
+    private var isLoadingFavorites = false
 
     private let headerView = UIView()
     private let nameLabel = UILabel()
@@ -60,7 +67,7 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         tableView.delegate = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "playlist-cell")
 
-        playlistsTitleLabel.text = "Spotify Playlists"
+        playlistsTitleLabel.text = "Playlists"
         playlistsTitleLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
         playlistsTitleLabel.textColor = DashboardTheme.textPrimary
 
@@ -141,6 +148,7 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
 
         service.delegate = self
         updateUI()
+        loadSonosFavorites()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -149,7 +157,7 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         service.updateConfig(AppConfig.load())
         playlists = AppConfig.load().spotifyPlaylists
         service.refreshNow()
-        tableView.reloadData()
+        loadSonosFavorites()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -168,8 +176,48 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
 
     func dashboardService(_ service: DashboardService, didFailWith error: Error) {}
 
+    private func loadSonosFavorites() {
+        isLoadingFavorites = true
+        tableView.reloadData()
+
+        service.fetchSpeakerFavorites(speaker) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isLoadingFavorites = false
+                switch result {
+                case .success(let favorites):
+                    self.sonosFavorites = favorites
+                case .failure:
+                    self.sonosFavorites = []
+                }
+                self.tableView.reloadData()
+            }
+        }
+    }
+
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return Section.allCases.count
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return max(playlists.count, 1)
+        guard let section = Section(rawValue: section) else { return 0 }
+        switch section {
+        case .sonosFavorites:
+            if isLoadingFavorites { return 1 }
+            return max(sonosFavorites.count, 1)
+        case .configuredPlaylists:
+            return max(playlists.count, 1)
+        }
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard let section = Section(rawValue: section) else { return nil }
+        switch section {
+        case .sonosFavorites:
+            return "Sonos Favorites"
+        case .configuredPlaylists:
+            return playlists.isEmpty ? nil : "Settings Playlists"
+        }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -177,45 +225,79 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
         cell.backgroundColor = UIColor(white: 1.0, alpha: 0.08)
         cell.textLabel?.textColor = DashboardTheme.textPrimary
         cell.textLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        cell.textLabel?.numberOfLines = 2
         cell.accessoryType = .disclosureIndicator
+        cell.selectionStyle = .default
 
-        if playlists.isEmpty {
-            cell.textLabel?.text = "Add playlists in Settings"
-            cell.selectionStyle = .none
-        } else {
-            cell.textLabel?.text = playlists[indexPath.row].name
-            cell.selectionStyle = .default
+        guard let section = Section(rawValue: indexPath.section) else {
+            return cell
         }
+
+        switch section {
+        case .sonosFavorites:
+            if isLoadingFavorites {
+                cell.textLabel?.text = "Loading Sonos favorites…"
+                cell.selectionStyle = .none
+            } else if sonosFavorites.isEmpty {
+                cell.textLabel?.text = "No favorites — tap ♥ in the Sonos app"
+                cell.selectionStyle = .none
+            } else {
+                cell.textLabel?.text = sonosFavorites[indexPath.row].title
+            }
+        case .configuredPlaylists:
+            if playlists.isEmpty {
+                cell.textLabel?.text = "Optional: add playlists in Settings"
+                cell.selectionStyle = .none
+            } else {
+                cell.textLabel?.text = playlists[indexPath.row].name
+            }
+        }
+
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard !playlists.isEmpty else { return }
+        guard let section = Section(rawValue: indexPath.section) else { return }
 
-        let playlist = playlists[indexPath.row]
-        service.playSpeakerPlaylist(speaker, playlist: playlist) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self?.speaker.isOn = true
-                    self?.updateUI()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        self?.service.refreshNow()
-                    }
-                case .failure(let error):
-                    let hint = "Add the playlist to Sonos Favorites first (Sonos app → My Sonos → ♥ on the playlist), then try again. Also confirm Spotify Premium and that Spotify is linked in Sonos → Settings → Services."
-                    self?.presentAlert(
-                        title: "Could Not Play Playlist",
-                        message: "\(error.localizedDescription)\n\n\(hint)"
-                    )
-                }
+        switch section {
+        case .sonosFavorites:
+            guard !isLoadingFavorites, !sonosFavorites.isEmpty else { return }
+            let favorite = sonosFavorites[indexPath.row]
+            service.playSpeakerFavorite(speaker, favorite: favorite) { [weak self] result in
+                self?.handlePlaybackResult(result)
+            }
+        case .configuredPlaylists:
+            guard !playlists.isEmpty else { return }
+            let playlist = playlists[indexPath.row]
+            service.playSpeakerPlaylist(speaker, playlist: playlist) { [weak self] result in
+                self?.handlePlaybackResult(result)
             }
         }
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return 52
+    }
+
+    private func handlePlaybackResult(_ result: Result<Void, LocalHTTPError>) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            switch result {
+            case .success:
+                self.speaker.isOn = true
+                self.updateUI()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    self.service.refreshNow()
+                }
+            case .failure(let error):
+                let hint = "Favorites from the Sonos app work best. Add playlists with ♥ in Sonos → My Sonos, then pull to refresh here."
+                self.presentAlert(
+                    title: "Could Not Play",
+                    message: "\(error.localizedDescription)\n\n\(hint)"
+                )
+            }
+        }
     }
 
     private func updateUI() {
