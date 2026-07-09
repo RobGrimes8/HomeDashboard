@@ -77,9 +77,15 @@ final class SonosService {
             ip: speakerIP,
             controlPath: "/MediaRenderer/RenderingControl/Control",
             action: "urn:schemas-upnp-org:service:RenderingControl:1#SetVolume",
-            body: body,
-            completion: completion
-        )
+            body: body
+        ) { result in
+            switch result {
+            case .success:
+                completion(.success(()))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
     }
 
     private func fetchSpeaker(at ip: String, completion: @escaping (Result<SmartDevice, LocalHTTPError>) -> Void) {
@@ -256,23 +262,6 @@ final class SonosService {
                     || xml.contains("<transportState>PLAYING</transportState>")
                 let trackTitle = self.extractXMLValue(named: "title", from: xml)
                 completion(.success(PlaybackStatus(isPlaying: isPlaying, trackTitle: trackTitle)))
-            }
-        }
-    }
-
-    private func performSOAP(
-        ip: String,
-        controlPath: String,
-        action: String,
-        body: String,
-        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
-    ) {
-        performSOAP(ip: ip, controlPath: controlPath, action: action, body: body) { result in
-            switch result {
-            case .success:
-                completion(.success(()))
-            case .failure(let error):
-                completion(.failure(error))
             }
         }
     }
