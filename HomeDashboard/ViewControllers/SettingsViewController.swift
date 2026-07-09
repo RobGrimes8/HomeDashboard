@@ -420,7 +420,8 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         Sonos:
         1. Find each speaker IP in your router admin page.
         2. Enter comma-separated IPs (e.g. 192.168.1.101, 192.168.1.102).
-        3. Link Spotify in the Sonos app first (Settings → Services).
+        3. For grouped rooms, the main speaker IP is safest (not surround satellites).
+        4. Link Spotify in the Sonos app first (Settings → Services).
 
         Spotify playlists:
         1. Link Spotify in the Sonos app first (Settings → Services).
