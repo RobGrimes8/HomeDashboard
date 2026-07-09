@@ -232,6 +232,24 @@ final class SonosService {
             )
         }
 
+        if isPlaylistFavorite(uri: favorite.uri, metadata: favorite.metadata), let objectID = favorite.objectID {
+            withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+                self?.resolveFavoritePlayback(at: coordinatorIP, objectID: objectID) { result in
+                    switch result {
+                    case .failure:
+                        if !favorite.uri.isEmpty {
+                            startPlayback(favorite.uri, favorite.metadata)
+                        } else {
+                            completion(.failure(.decodingFailed))
+                        }
+                    case .success(let resolved):
+                        startPlayback(resolved.uri, resolved.metadata)
+                    }
+                }
+            }
+            return
+        }
+
         if !favorite.uri.isEmpty {
             startPlayback(favorite.uri, favorite.metadata)
             return
@@ -422,7 +440,7 @@ final class SonosService {
                 title: decodeHTMLEntities(title),
                 uri: uri,
                 metadata: xmlEscape(metadataDIDL),
-                objectID: uri.isEmpty ? objectID : nil
+                objectID: objectID
             )
         }
     }
@@ -434,38 +452,14 @@ final class SonosService {
         title: String,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
-        if uri.contains("cpcontainer") || metadata.contains("playlistContainer") {
-            let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
-            let body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <EnqueuedURI>\(escapedURI)</EnqueuedURI>
-                  <EnqueuedURIMetaData>\(metadata)</EnqueuedURIMetaData>
-                  <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
-                  <EnqueueAsNext>false</EnqueueAsNext>
-                </u:AddURIToQueue>
-              </s:Body>
-            </s:Envelope>
-            """
-
-            DebugLog.shared.log("Sonos favorite playlist queue: \(title) → \(uri)")
-            performAVTransportSOAP(
+        if isPlaylistFavorite(uri: uri, metadata: metadata) {
+            playFavoritePlaylist(
                 on: speakerIP,
-                action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
-                body: body
-            ) { [weak self] result in
-                guard let self = self else { return }
-                switch result {
-                case .failure(let error):
-                    completion(.failure(error))
-                case .success(let xml):
-                    let trackNumber = Int(self.extractXMLValue(named: "FirstTrackNumberEnqueued", from: xml) ?? "1") ?? 1
-                    self.playFromQueueTrack(on: speakerIP, trackNumber: max(trackNumber, 1), completion: completion)
-                }
-            }
+                uri: uri,
+                metadata: metadata,
+                title: title,
+                completion: completion
+            )
             return
         }
 
@@ -484,6 +478,260 @@ final class SonosService {
                 }
             }
         }
+    }
+
+    private func isPlaylistFavorite(uri: String, metadata: String) -> Bool {
+        return uri.contains("cpcontainer") || metadata.contains("playlistContainer")
+    }
+
+    private func playFavoritePlaylist(
+        on speakerIP: String,
+        uri: String,
+        metadata: String,
+        title: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        DebugLog.shared.log("Sonos favorite playlist: \(title)")
+
+        tryFavoritePlaylistDirect(
+            on: speakerIP,
+            uri: uri,
+            metadata: metadata,
+            title: title
+        ) { [weak self] directError in
+            guard let self = self else { return }
+            if directError == nil {
+                completion(.success(()))
+                return
+            }
+
+            self.tryFavoritePlaylistQueue(
+                on: speakerIP,
+                uri: uri,
+                metadata: metadata,
+                title: title,
+                label: "sonos-metadata"
+            ) { queueError in
+                if queueError == nil {
+                    completion(.success(()))
+                    return
+                }
+
+                if let parsed = self.extractPlaylistIDFromFavorite(uri: uri, metadata: metadata) {
+                    DebugLog.shared.log("Sonos favorite playlist fallback for \(parsed.id)")
+                    self.attemptSpotifyPlaylistPlayback(
+                        on: speakerIP,
+                        title: title,
+                        parsed: parsed,
+                        regions: ["2311", "3079"],
+                        regionIndex: 0,
+                        variantIndex: 0,
+                        completion: completion
+                    )
+                    return
+                }
+
+                completion(.failure(queueError ?? directError ?? .decodingFailed))
+            }
+        }
+    }
+
+    private func tryFavoritePlaylistDirect(
+        on speakerIP: String,
+        uri: String,
+        metadata: String,
+        title: String,
+        completion: @escaping (LocalHTTPError?) -> Void
+    ) {
+        withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
+            self?.setSpotifyTransport(
+                on: coordinatorIP,
+                uri: uri,
+                metadata: metadata,
+                label: "favorite-playlist-direct"
+            ) { result in
+                switch result {
+                case .success:
+                    self?.performPlay(on: speakerIP) { playResult in
+                        switch playResult {
+                        case .success:
+                            completion(nil)
+                        case .failure(let error):
+                            DebugLog.shared.log("Sonos favorite playlist direct play failed: \(error.localizedDescription)")
+                            completion(error)
+                        }
+                    }
+                case .failure(let error):
+                    DebugLog.shared.log("Sonos favorite playlist direct transport failed: \(error.localizedDescription)")
+                    completion(error)
+                }
+            }
+        }
+    }
+
+    private func tryFavoritePlaylistQueue(
+        on speakerIP: String,
+        uri: String,
+        metadata: String,
+        title: String,
+        label: String,
+        completion: @escaping (LocalHTTPError?) -> Void
+    ) {
+        let attempts = favoritePlaylistQueueAttempts(uri: uri, metadata: metadata, title: title)
+        tryFavoritePlaylistQueueAttempts(
+            on: speakerIP,
+            attempts: attempts,
+            index: 0,
+            label: label,
+            completion: completion
+        )
+    }
+
+    private func favoritePlaylistQueueAttempts(
+        uri: String,
+        metadata: String,
+        title: String
+    ) -> [(uri: String, metadata: String)] {
+        var attempts: [(uri: String, metadata: String)] = []
+        if metadataIncludesCdUdn(metadata) {
+            attempts.append((uri, metadata))
+        }
+
+        if let parsed = extractPlaylistIDFromFavorite(uri: uri, metadata: metadata) {
+            for region in ["2311", "3079"] {
+                for request in spotifyPlaylistVariants(title: title, parsed: parsed, region: region) where request.useMetadata {
+                    attempts.append((request.queueURI, spotifyShareMetadata(for: request)))
+                }
+            }
+        }
+
+        if attempts.isEmpty {
+            attempts.append((uri, metadata))
+        }
+
+        var seen = Set<String>()
+        return attempts.filter { attempt in
+            let key = attempt.uri + "|" + attempt.metadata
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
+    private func tryFavoritePlaylistQueueAttempts(
+        on speakerIP: String,
+        attempts: [(uri: String, metadata: String)],
+        index: Int,
+        label: String,
+        completion: @escaping (LocalHTTPError?) -> Void
+    ) {
+        guard index < attempts.count else {
+            completion(.decodingFailed)
+            return
+        }
+
+        let attempt = attempts[index]
+        addURIToQueue(
+            on: speakerIP,
+            uri: attempt.uri,
+            metadata: attempt.metadata,
+            label: "\(label)-\(index)"
+        ) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let trackNumber):
+                self.playFromQueueTrack(on: speakerIP, trackNumber: trackNumber) { playResult in
+                    switch playResult {
+                    case .success:
+                        completion(nil)
+                    case .failure(let error):
+                        DebugLog.shared.log("Sonos favorite playlist queue bind failed: \(error.localizedDescription)")
+                        self.tryFavoritePlaylistQueueAttempts(
+                            on: speakerIP,
+                            attempts: attempts,
+                            index: index + 1,
+                            label: label,
+                            completion: completion
+                        )
+                    }
+                }
+            case .failure(let error):
+                DebugLog.shared.log("Sonos favorite playlist queue enqueue failed [\(label)-\(index)]: \(error.localizedDescription)")
+                self.tryFavoritePlaylistQueueAttempts(
+                    on: speakerIP,
+                    attempts: attempts,
+                    index: index + 1,
+                    label: label,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    private func addURIToQueue(
+        on speakerIP: String,
+        uri: String,
+        metadata: String,
+        label: String,
+        completion: @escaping (Result<Int, LocalHTTPError>) -> Void
+    ) {
+        let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <EnqueuedURI>\(escapedURI)</EnqueuedURI>
+              <EnqueuedURIMetaData>\(metadata)</EnqueuedURIMetaData>
+              <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
+              <EnqueueAsNext>false</EnqueueAsNext>
+            </u:AddURIToQueue>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        DebugLog.shared.log("Sonos AddURIToQueue [\(label)] \(uri)")
+        performAVTransportSOAP(
+            on: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
+            body: body
+        ) { result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let xml):
+                let trackNumber = Int(self.extractXMLValue(named: "FirstTrackNumberEnqueued", from: xml) ?? "1") ?? 1
+                completion(.success(max(trackNumber, 1)))
+            }
+        }
+    }
+
+    private func metadataIncludesCdUdn(_ metadata: String) -> Bool {
+        return metadata.contains("cdudn") || metadata.contains("SA_RINCON")
+    }
+
+    private func extractPlaylistIDFromFavorite(uri: String, metadata: String) -> ParsedSpotifyURI? {
+        let decoded = decodeHTMLEntities(uri + metadata)
+        let patterns = [
+            "spotify%3aplaylist%3a([A-Za-z0-9]+)",
+            "spotify%3auser%3aspotify%3aplaylist%3a([A-Za-z0-9]+)",
+            "spotify:playlist:([A-Za-z0-9]+)"
+        ]
+        for pattern in patterns {
+            guard
+                let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+                let result = regex.firstMatch(in: decoded, options: [], range: NSRange(decoded.startIndex..., in: decoded)),
+                let idRange = Range(result.range(at: 1), in: decoded)
+            else {
+                continue
+            }
+            let id = String(decoded[idRange])
+            if !id.isEmpty {
+                return ParsedSpotifyURI(kind: "playlist", id: id)
+            }
+        }
+        return nil
     }
 
     private func resolveFavoritePlayback(
@@ -853,36 +1101,14 @@ final class SonosService {
         completion: @escaping (Result<Int, LocalHTTPError>) -> Void
     ) {
         let metadata = spotifyShareMetadata(for: request)
-        let body = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-              <EnqueuedURI>\(request.queueURI)</EnqueuedURI>
-              <EnqueuedURIMetaData>\(metadata)</EnqueuedURIMetaData>
-              <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
-              <EnqueueAsNext>false</EnqueueAsNext>
-            </u:AddURIToQueue>
-          </s:Body>
-        </s:Envelope>
-        """
-
         DebugLog.shared.log("Spotify AddURIToQueue [\(request.label)] \(request.queueURI) (\(request.cdUdn))")
-        performAVTransportSOAP(
+        addURIToQueue(
             on: speakerIP,
-            action: "urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue",
-            body: body
-        ) { result in
-            switch result {
-            case .failure(let error):
-                completion(.failure(error))
-            case .success(let xml):
-                let trackNumber = Int(self.extractXMLValue(named: "FirstTrackNumberEnqueued", from: xml) ?? "1") ?? 1
-                DebugLog.shared.log("Spotify queued at track \(trackNumber)")
-                completion(.success(max(trackNumber, 1)))
-            }
-        }
+            uri: request.queueURI,
+            metadata: metadata,
+            label: request.label,
+            completion: completion
+        )
     }
 
     private func playFromQueueTrack(
@@ -898,38 +1124,74 @@ final class SonosService {
                     return
                 }
 
-                let queueURI = "x-rincon-queue:\(queueID)#0"
-                let body = """
-                <?xml version="1.0" encoding="utf-8"?>
-                <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-                  <s:Body>
-                    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                      <InstanceID>0</InstanceID>
-                      <CurrentURI>\(queueURI)</CurrentURI>
-                      <CurrentURIMetaData></CurrentURIMetaData>
-                    </u:SetAVTransportURI>
-                  </s:Body>
-                </s:Envelope>
-                """
-
-                DebugLog.shared.log("Spotify play queue \(queueURI) track \(trackNumber) via \(coordinatorIP)")
-                self.performAVTransportSOAP(
+                let queueURIs = [
+                    "x-rincon-queue:\(queueID)#0",
+                    "x-rincon-queue:uuid:\(queueID)#0"
+                ]
+                self.bindQueueAndPlay(
                     on: speakerIP,
-                    action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
-                    body: body
-                ) { result in
-                    switch result {
+                    queueURIs: queueURIs,
+                    index: 0,
+                    trackNumber: trackNumber,
+                    coordinatorIP: coordinatorIP,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    private func bindQueueAndPlay(
+        on speakerIP: String,
+        queueURIs: [String],
+        index: Int,
+        trackNumber: Int,
+        coordinatorIP: String,
+        completion: @escaping (Result<Void, LocalHTTPError>) -> Void
+    ) {
+        guard index < queueURIs.count else {
+            completion(.failure(.decodingFailed))
+            return
+        }
+
+        let queueURI = queueURIs[index]
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <CurrentURI>\(queueURI)</CurrentURI>
+              <CurrentURIMetaData></CurrentURIMetaData>
+            </u:SetAVTransportURI>
+          </s:Body>
+        </s:Envelope>
+        """
+
+        DebugLog.shared.log("Spotify play queue \(queueURI) track \(trackNumber) via \(coordinatorIP)")
+        performAVTransportSOAP(
+            on: speakerIP,
+            action: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+            body: body
+        ) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .failure(let error):
+                DebugLog.shared.log("Sonos queue bind failed for \(queueURI): \(error.localizedDescription)")
+                self.bindQueueAndPlay(
+                    on: speakerIP,
+                    queueURIs: queueURIs,
+                    index: index + 1,
+                    trackNumber: trackNumber,
+                    coordinatorIP: coordinatorIP,
+                    completion: completion
+                )
+            case .success:
+                self.seekQueueTrack(on: speakerIP, trackNumber: trackNumber) { seekResult in
+                    switch seekResult {
                     case .failure(let error):
                         completion(.failure(error))
                     case .success:
-                        self.seekQueueTrack(on: speakerIP, trackNumber: trackNumber) { seekResult in
-                            switch seekResult {
-                            case .failure(let error):
-                                completion(.failure(error))
-                            case .success:
-                                self.performPlay(on: speakerIP, completion: completion)
-                            }
-                        }
+                        self.performPlay(on: speakerIP, completion: completion)
                     }
                 }
             }
@@ -1299,25 +1561,50 @@ final class SonosService {
         guard groups.count > 1 else { return nil }
 
         for group in groups.dropFirst() {
-            guard group.contains("UUID=\"\(deviceUUID)\"") else { continue }
+            let members = zoneGroupMembers(from: group)
+            guard members.contains(where: { $0.uuid == deviceUUID }) else { continue }
             guard
                 let coordinatorUUID = extractAttribute(named: "Coordinator", from: group),
-                let memberBlock = group.range(of: "UUID=\"\(coordinatorUUID)\"")
+                let coordinator = members.first(where: { $0.uuid == coordinatorUUID }),
+                let coordinatorIP = coordinator.ip
             else {
                 continue
             }
 
-            let tail = String(group[memberBlock.lowerBound...])
-            guard
-                let location = extractAttribute(named: "Location", from: tail),
-                let coordinatorIP = ipFromSonosLocation(location)
-            else {
-                continue
+            if members.count > 1 && coordinator.uuid != deviceUUID {
+                DebugLog.shared.log("Sonos group has \(members.count) members; coordinator is \(coordinatorIP)")
             }
             return coordinatorIP
         }
 
         return nil
+    }
+
+    private struct ZoneGroupMemberInfo {
+        let uuid: String
+        let ip: String?
+    }
+
+    private func zoneGroupMembers(from group: String) -> [ZoneGroupMemberInfo] {
+        let pattern = "<ZoneGroupMember([^>]*)/?>"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+
+        let range = NSRange(group.startIndex..., in: group)
+        return regex.matches(in: group, options: [], range: range).compactMap { match in
+            guard let attrsRange = Range(match.range(at: 1), in: group) else {
+                return nil
+            }
+            let attrs = String(group[attrsRange])
+            guard
+                let uuid = extractAttribute(named: "UUID", from: attrs),
+                let location = extractAttribute(named: "Location", from: attrs)
+            else {
+                return nil
+            }
+            return ZoneGroupMemberInfo(uuid: uuid, ip: ipFromSonosLocation(location))
+        }
     }
 
     private func fetchSpotifySerialNumber(at ip: String, completion: @escaping (Int?) -> Void) {
