@@ -65,13 +65,14 @@ final class DeviceTileCell: UICollectionViewCell {
 
     private func subtitle(for device: SmartDevice) -> String {
         switch device.kind {
-        case .light:
+        case .light, .lightGroup:
+            let label = device.kind == .lightGroup ? "Group" : ""
             let state = device.isOn ? "On" : "Off"
             if let brightness = device.brightness {
                 let percent = Int((Double(brightness) / 254.0) * 100.0)
-                return "\(state) · \(percent)% brightness"
+                return label.isEmpty ? "\(state) · \(percent)% brightness" : "\(label) · \(state) · \(percent)%"
             }
-            return state
+            return label.isEmpty ? state : "\(label) · \(state)"
         case .speaker:
             let state = device.isOn ? "Playing" : "Idle"
             if let volume = device.volume {

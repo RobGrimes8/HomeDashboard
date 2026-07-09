@@ -3,10 +3,16 @@ import UIKit
 final class LightsViewController: UIViewController, DashboardServiceDelegate, UITableViewDataSource, UITableViewDelegate {
 
     private let service = DashboardService(config: AppConfig.load())
+    private var lightGroups: [SmartDevice] = []
     private var lights: [SmartDevice] = []
     private var statusMessage: String?
 
-    private let tableView = UITableView(frame: .zero, style: .plain)
+    private enum Section: Int, CaseIterable {
+        case groups
+        case lights
+    }
+
+    private let tableView = UITableView(frame: .zero, style: .grouped)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -69,12 +75,13 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
     // MARK: - DashboardServiceDelegate
 
     func dashboardService(_ service: DashboardService, didUpdate snapshot: DashboardSnapshot) {
+        lightGroups = snapshot.lightGroups
         lights = snapshot.lights
         if let error = snapshot.errorMessage?
             .split(separator: "\n")
-            .first(where: { $0.hasPrefix("Lights:") }) {
-            statusMessage = String(error.dropFirst("Lights: ".count))
-        } else if lights.isEmpty {
+            .first(where: { $0.hasPrefix("Lights:") || $0.hasPrefix("Groups:") }) {
+            statusMessage = String(error.dropFirst(error.hasPrefix("Lights:") ? "Lights: ".count : "Groups: ".count))
+        } else if lights.isEmpty && lightGroups.isEmpty {
             statusMessage = AppConfig.load().isHueConfigured
                 ? "No lights returned from the bridge. Tap refresh."
                 : nil
@@ -90,56 +97,104 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     // MARK: - UITableView
 
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return Section.allCases.count
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return max(lights.count, 1)
+        guard let section = Section(rawValue: section) else { return 0 }
+        switch section {
+        case .groups:
+            return max(lightGroups.count, 1)
+        case .lights:
+            return max(lights.count, 1)
+        }
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard let section = Section(rawValue: section) else { return nil }
+        switch section {
+        case .groups:
+            return "Groups"
+        case .lights:
+            return "Individual Lights"
+        }
+    }
+
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        guard Section(rawValue: section) == .groups else { return nil }
+        if lightGroups.isEmpty {
+            return "Hue rooms appear here automatically. Add custom groups in Settings using light names."
+        }
+        return "Control a whole room at once. Create more groups in Settings or the Hue app."
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard
-            let cell = tableView.dequeueReusableCell(withIdentifier: LightControlCell.reuseID, for: indexPath) as? LightControlCell
+            let cell = tableView.dequeueReusableCell(withIdentifier: LightControlCell.reuseID, for: indexPath) as? LightControlCell,
+            let section = Section(rawValue: indexPath.section)
         else {
             return UITableViewCell()
         }
 
-        if lights.isEmpty {
-            let config = AppConfig.load()
-            if config.isHueConfigured {
+        switch section {
+        case .groups:
+            if lightGroups.isEmpty {
                 cell.configurePlaceholder(
-                    title: "No lights found",
-                    detail: statusMessage ?? "Check bridge IP and username, then tap refresh."
+                    title: "No groups yet",
+                    detail: "Hue rooms sync automatically, or add custom groups in Settings."
                 )
+                cell.onToggle = nil
+                cell.onBrightnessChanged = nil
             } else {
-                cell.configurePlaceholder()
+                configureCell(cell, with: lightGroups[indexPath.row])
             }
-            cell.onToggle = nil
-            cell.onBrightnessChanged = nil
-        } else {
-            let light = lights[indexPath.row]
-            cell.configure(with: light)
-            cell.onToggle = { [weak self] in
-                self?.service.toggleLight(light) { result in
-                    DispatchQueue.main.async {
-                        switch result {
-                        case .success:
-                            self?.service.refreshNow()
-                        case .failure(let error):
-                            self?.presentAlert(title: "Could Not Toggle Light", message: error.localizedDescription)
-                        }
-                    }
+        case .lights:
+            if lights.isEmpty {
+                let config = AppConfig.load()
+                if config.isHueConfigured {
+                    cell.configurePlaceholder(
+                        title: "No lights found",
+                        detail: statusMessage ?? "Check bridge IP and username, then tap refresh."
+                    )
+                } else {
+                    cell.configurePlaceholder()
                 }
-            }
-            cell.onBrightnessChanged = { [weak self] value in
-                self?.service.setLightBrightness(light, brightness: value) { result in
-                    DispatchQueue.main.async {
-                        if case .failure(let error) = result {
-                            self?.presentAlert(title: "Brightness Failed", message: error.localizedDescription)
-                        }
-                    }
-                }
+                cell.onToggle = nil
+                cell.onBrightnessChanged = nil
+            } else {
+                configureCell(cell, with: lights[indexPath.row])
             }
         }
 
         return cell
+    }
+
+    private func configureCell(_ cell: LightControlCell, with device: SmartDevice) {
+        cell.configure(with: device)
+        cell.onToggle = { [weak self] in
+            self?.service.toggleDevice(device) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success:
+                        self?.service.refreshNow()
+                    case .failure(let error):
+                        self?.presentAlert(title: "Could Not Toggle", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+        cell.onBrightnessChanged = { [weak self] value in
+            self?.service.setDeviceBrightness(device, brightness: value) { result in
+                DispatchQueue.main.async {
+                    if case .failure(let error) = result {
+                        self?.presentAlert(title: "Brightness Failed", message: error.localizedDescription)
+                    } else {
+                        self?.service.refreshNow()
+                    }
+                }
+            }
+        }
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {

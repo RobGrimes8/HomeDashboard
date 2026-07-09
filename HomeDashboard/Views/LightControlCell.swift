@@ -59,7 +59,11 @@ final class LightControlCell: UITableViewCell {
 
     func configure(with light: SmartDevice) {
         nameLabel.text = light.name
-        detailLabel.text = light.isReachable ? "Local Hue light" : "Unreachable"
+        if light.kind == .lightGroup {
+            detailLabel.text = light.room ?? "Light group"
+        } else {
+            detailLabel.text = light.isReachable ? "Local Hue light" : "Unreachable"
+        }
         toggleSwitch.isOn = light.isOn
         slider.value = Float(light.brightness ?? 0)
         slider.isEnabled = light.isReachable

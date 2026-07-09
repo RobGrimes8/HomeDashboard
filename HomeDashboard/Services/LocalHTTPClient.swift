@@ -70,7 +70,15 @@ final class LocalHTTPClient {
         task.resume()
     }
 
+    func post(urlString: String, body: [String: Any], completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        send(urlString: urlString, method: "POST", body: body, completion: completion)
+    }
+
     func put(urlString: String, body: [String: Any], completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        send(urlString: urlString, method: "PUT", body: body, completion: completion)
+    }
+
+    private func send(urlString: String, method: String, body: [String: Any], completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
         guard let url = URL(string: urlString) else {
             completion(.failure(.invalidURL))
             return
@@ -82,7 +90,7 @@ final class LocalHTTPClient {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         do {

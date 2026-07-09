@@ -45,6 +45,7 @@ final class DashboardService {
 
     func refreshNow() {
         let group = DispatchGroup()
+        var lightGroups: [SmartDevice] = []
         var lights: [SmartDevice] = []
         var speakers: [SmartDevice] = []
         var errors: [String] = []
@@ -60,6 +61,19 @@ final class DashboardService {
                     lights = devices
                 case .failure(let error):
                     errors.append("Lights: \(error.localizedDescription)")
+                }
+                group.leave()
+            }
+
+            group.enter()
+            lightsService.fetchGroups { result in
+                lock.lock()
+                defer { lock.unlock() }
+                switch result {
+                case .success(let devices):
+                    lightGroups = devices
+                case .failure(let error):
+                    errors.append("Groups: \(error.localizedDescription)")
                 }
                 group.leave()
             }
@@ -81,7 +95,11 @@ final class DashboardService {
         group.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
 
+            let customGroups = self.lightsService.buildCustomGroups(from: lights)
+            let allGroups = lightGroups + customGroups
+
             let snapshot = DashboardSnapshot(
+                lightGroups: allGroups,
                 lights: lights,
                 speakers: speakers,
                 lastUpdated: Date(),
@@ -90,7 +108,7 @@ final class DashboardService {
             self.latestSnapshot = snapshot
             self.delegate?.dashboardService(self, didUpdate: snapshot)
 
-            if lights.isEmpty && speakers.isEmpty, let first = errors.first {
+            if allGroups.isEmpty && lights.isEmpty && speakers.isEmpty, let first = errors.first {
                 self.delegate?.dashboardService(self, didFailWith: LocalHTTPError.transport(NSError(
                     domain: "HomeDashboard",
                     code: 1,
@@ -100,12 +118,60 @@ final class DashboardService {
         }
     }
 
+    func toggleDevice(_ device: SmartDevice, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        switch device.kind {
+        case .lightGroup:
+            if device.id.hasPrefix("group-") {
+                let groupID = String(device.id.dropFirst("group-".count))
+                lightsService.setGroupOn(groupID, isOn: !device.isOn, completion: completion)
+            } else if device.id.hasPrefix("custom-") {
+                let index = Int(device.id.dropFirst("custom-".count)) ?? 0
+                lightsService.setCustomGroupOn(
+                    index: index,
+                    lights: latestSnapshot.lights,
+                    isOn: !device.isOn,
+                    completion: completion
+                )
+            } else {
+                completion(.failure(.decodingFailed))
+            }
+        case .light:
+            lightsService.setLightOn(device.id, isOn: !device.isOn, completion: completion)
+        default:
+            completion(.failure(.decodingFailed))
+        }
+    }
+
+    func setDeviceBrightness(_ device: SmartDevice, brightness: Int, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
+        switch device.kind {
+        case .lightGroup:
+            if device.id.hasPrefix("group-") {
+                let groupID = String(device.id.dropFirst("group-".count))
+                lightsService.setGroupBrightness(groupID, brightness: brightness, completion: completion)
+            } else if device.id.hasPrefix("custom-") {
+                let index = Int(device.id.dropFirst("custom-".count)) ?? 0
+                lightsService.setCustomGroupBrightness(
+                    index: index,
+                    lights: latestSnapshot.lights,
+                    brightness: brightness,
+                    completion: completion
+                )
+            } else {
+                completion(.failure(.decodingFailed))
+            }
+        case .light:
+            lightsService.setBrightness(device.id, brightness: brightness, completion: completion)
+        default:
+            completion(.failure(.decodingFailed))
+        }
+    }
+
     func toggleLight(_ device: SmartDevice, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        lightsService.setLightOn(device.id, isOn: !device.isOn, completion: completion)
+        toggleDevice(device, completion: completion)
     }
 
     func setLightBrightness(_ device: SmartDevice, brightness: Int, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        lightsService.setBrightness(device.id, brightness: brightness, completion: completion)
+        setDeviceBrightness(device, brightness: brightness, completion: completion)
     }
 
     func setSpeakerVolume(_ device: SmartDevice, volume: Int, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {

@@ -6,5 +6,6 @@
     "192.168.1.102"
   ],
   "refreshIntervalSeconds": 15,
-  "requestTimeoutSeconds": 8
+  "requestTimeoutSeconds": 8,
+  "customLightGroups": []
 }

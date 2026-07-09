@@ -2,6 +2,7 @@ import Foundation
 
 enum DeviceKind: String, Codable {
     case light
+    case lightGroup
     case speaker
     case switchDevice = "switch"
     case thermostat
@@ -40,16 +41,17 @@ struct SmartDevice: Codable, Equatable {
 }
 
 struct DashboardSnapshot {
+    let lightGroups: [SmartDevice]
     let lights: [SmartDevice]
     let speakers: [SmartDevice]
     let lastUpdated: Date
     let errorMessage: String?
 
     var allDevices: [SmartDevice] {
-        return lights + speakers
+        return lightGroups + lights + speakers
     }
 
     static var empty: DashboardSnapshot {
-        return DashboardSnapshot(lights: [], speakers: [], lastUpdated: Date(), errorMessage: nil)
+        return DashboardSnapshot(lightGroups: [], lights: [], speakers: [], lastUpdated: Date(), errorMessage: nil)
     }
 }

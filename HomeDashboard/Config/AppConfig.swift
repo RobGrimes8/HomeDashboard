@@ -8,19 +8,50 @@ struct AppConfig: Codable {
     var sonosSpeakerIPs: [String]
     var refreshIntervalSeconds: TimeInterval
     var requestTimeoutSeconds: TimeInterval
+    var customLightGroups: [CustomLightGroup]
+
+    struct CustomLightGroup: Codable, Equatable {
+        var name: String
+        var lightNames: [String]
+    }
 
     static let `default` = AppConfig(
         hueBridgeIP: "192.168.1.100",
         hueUsername: "YOUR_HUE_API_USERNAME",
         sonosSpeakerIPs: ["192.168.1.101", "192.168.1.102"],
         refreshIntervalSeconds: 15,
-        requestTimeoutSeconds: 8
+        requestTimeoutSeconds: 8,
+        customLightGroups: []
     )
 
     var isHueConfigured: Bool {
         let ip = hueBridgeIP.trimmingCharacters(in: .whitespacesAndNewlines)
         let user = hueUsername.trimmingCharacters(in: .whitespacesAndNewlines)
         return !ip.isEmpty && !user.isEmpty && user != "YOUR_HUE_API_USERNAME"
+    }
+
+    static func customGroupsText(from groups: [CustomLightGroup]) -> String {
+        return groups.map { group in
+            "\(group.name)=\(group.lightNames.joined(separator: ", "))"
+        }.joined(separator: "\n")
+    }
+
+    static func parseCustomGroupsText(_ text: String) -> [CustomLightGroup] {
+        return text
+            .split(separator: "\n")
+            .compactMap { line in
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2 else { return nil }
+
+                let name = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let lightNames = parts[1]
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+
+                guard !name.isEmpty, !lightNames.isEmpty else { return nil }
+                return CustomLightGroup(name: name, lightNames: lightNames)
+            }
     }
 
     func sanitized() -> AppConfig {
@@ -31,7 +62,17 @@ struct AppConfig: Codable {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty },
             refreshIntervalSeconds: refreshIntervalSeconds,
-            requestTimeoutSeconds: requestTimeoutSeconds
+            requestTimeoutSeconds: requestTimeoutSeconds,
+            customLightGroups: customLightGroups
+                .map {
+                    CustomLightGroup(
+                        name: $0.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                        lightNames: $0.lightNames
+                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                    )
+                }
+                .filter { !$0.name.isEmpty && !$0.lightNames.isEmpty }
         )
     }
 

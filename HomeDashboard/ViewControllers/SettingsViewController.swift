@@ -1,17 +1,19 @@
 import UIKit
 
-final class SettingsViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
+final class SettingsViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UITextViewDelegate {
 
     private var config = AppConfig.load()
     private var draftHueIP = ""
     private var draftHueUser = ""
     private var draftSonosIPs = ""
     private var draftRefresh = ""
+    private var draftCustomGroups = ""
 
     private enum Row: Int, CaseIterable {
         case hueIP
         case hueUser
         case sonosIPs
+        case customGroups
         case refresh
         case testHue
         case save
@@ -33,6 +35,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(SettingsFieldCell.self, forCellReuseIdentifier: SettingsFieldCell.reuseID)
+        tableView.register(SettingsMultilineCell.self, forCellReuseIdentifier: SettingsMultilineCell.reuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "action-cell")
         tableView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tableView)
@@ -59,6 +62,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         draftHueUser = config.hueUsername
         draftSonosIPs = config.sonosSpeakerIPs.joined(separator: ", ")
         draftRefresh = String(Int(config.refreshIntervalSeconds))
+        draftCustomGroups = AppConfig.customGroupsText(from: config.customLightGroups)
     }
 
     func numberOfSections(in tableView: UITableView) -> Int { 1 }
@@ -74,7 +78,7 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if config.isHueConfigured {
             let suffix = String(config.hueUsername.suffix(4))
-            return "Saved Hue user ends with …\(suffix). Use Test Hue Connection before saving if lights fail to load."
+            return "Saved Hue user ends with …\(suffix). Custom groups: one per line as Name=Light 1, Light 2."
         }
         return "Enter your Hue bridge IP and API username, then tap Test Hue Connection."
     }
@@ -84,6 +88,8 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         switch row {
         case .hueIP, .hueUser, .sonosIPs, .refresh:
             return 88
+        case .customGroups:
+            return 150
         default:
             return 44
         }
@@ -143,6 +149,13 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
 
             return cell
 
+        case .customGroups:
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: SettingsMultilineCell.reuseID, for: indexPath) as? SettingsMultilineCell else {
+                return UITableViewCell()
+            }
+            cell.configure(title: "Custom Light Groups", value: draftCustomGroups, delegate: self)
+            return cell
+
         default:
             let cell = tableView.dequeueReusableCell(withIdentifier: "action-cell", for: indexPath)
             cell.backgroundColor = UIColor(white: 0.10, alpha: 1.0)
@@ -195,6 +208,18 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         updateDraft(from: textField)
     }
 
+    func textViewDidEndEditing(_ textView: UITextView) {
+        if textView.tag == 5 {
+            draftCustomGroups = textView.text ?? ""
+        }
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        if textView.tag == 5 {
+            draftCustomGroups = textView.text ?? ""
+        }
+    }
+
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         updateDraft(from: textField)
         textField.resignFirstResponder()
@@ -222,7 +247,8 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
             hueUsername: draftHueUser,
             sonosSpeakerIPs: sonosIPs,
             refreshIntervalSeconds: TimeInterval(draftRefresh) ?? config.refreshIntervalSeconds,
-            requestTimeoutSeconds: config.requestTimeoutSeconds
+            requestTimeoutSeconds: config.requestTimeoutSeconds,
+            customLightGroups: AppConfig.parseCustomGroupsText(draftCustomGroups)
         ).sanitized()
     }
 
@@ -288,6 +314,12 @@ final class SettingsViewController: UIViewController, UITableViewDataSource, UIT
         Sonos:
         1. Find each speaker IP in your router admin page.
         2. Enter comma-separated IPs (e.g. 192.168.1.101, 192.168.1.102).
+
+        Light groups:
+        1. Hue rooms from your bridge appear automatically in Lights → Groups.
+        2. For custom groups, enter one per line:
+           Desks=Desk 1, Desk 2, Desk 3
+           Use exact light names from the Individual Lights list.
 
         Free Apple Developer account:
         Re-sign the app in Xcode every 7 days (Product → Run on your iPad).
@@ -372,5 +404,69 @@ private final class SettingsFieldCell: UITableViewCell, UITextFieldDelegate {
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         return externalDelegate?.textFieldShouldReturn?(textField) ?? true
+    }
+}
+
+private final class SettingsMultilineCell: UITableViewCell, UITextViewDelegate {
+
+    static let reuseID = "SettingsMultilineCell"
+
+    private let titleLabel = UILabel()
+    private let valueView = UITextView()
+    private weak var externalDelegate: UITextViewDelegate?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = UIColor(white: 0.10, alpha: 1.0)
+        selectionStyle = .none
+
+        titleLabel.font = UIFont.systemFont(ofSize: 16)
+        titleLabel.textColor = .white
+        titleLabel.numberOfLines = 2
+
+        valueView.backgroundColor = UIColor(white: 0.14, alpha: 1.0)
+        valueView.textColor = .white
+        valueView.font = UIFont.systemFont(ofSize: 13)
+        valueView.delegate = self
+        valueView.keyboardAppearance = .dark
+        valueView.autocorrectionType = .no
+        valueView.autocapitalizationType = .none
+        valueView.layer.cornerRadius = 6
+        valueView.tag = 5
+
+        [titleLabel, valueView].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+
+            valueView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            valueView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            valueView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            valueView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            valueView.heightAnchor.constraint(equalToConstant: 90)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(title: String, value: String, delegate: UITextViewDelegate) {
+        titleLabel.text = title
+        valueView.text = value
+        externalDelegate = delegate
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        externalDelegate?.textViewDidEndEditing?(textView)
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        externalDelegate?.textViewDidChange?(textView)
     }
 }
