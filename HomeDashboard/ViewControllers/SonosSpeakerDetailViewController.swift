@@ -292,9 +292,15 @@ final class SonosSpeakerDetailViewController: UIViewController, DashboardService
                 }
             case .failure(let error):
                 let hint = "Favorites from the Sonos app work best. Add playlists with ♥ in Sonos → My Sonos, then pull to refresh here."
+                let message: String
+                if case .decodingFailed = error {
+                    message = "Sonos did not return playable playlist data. Check Spotify is linked in the Sonos app.\n\n\(hint)"
+                } else {
+                    message = "\(error.localizedDescription)\n\n\(hint)"
+                }
                 self.presentAlert(
                     title: "Could Not Play",
-                    message: "\(error.localizedDescription)\n\n\(hint)"
+                    message: message
                 )
             }
         }

@@ -491,7 +491,21 @@ final class SonosService {
         title: String,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
-        DebugLog.shared.log("Sonos favorite playlist: \(title)")
+        DebugLog.shared.log("Sonos favorite playlist: \(title) → \(uri)")
+
+        if let parsed = extractPlaylistIDFromFavorite(uri: uri, metadata: metadata) {
+            DebugLog.shared.log("Sonos favorite playlist using Spotify ID \(parsed.id)")
+            attemptSpotifyPlaylistPlayback(
+                on: speakerIP,
+                title: title,
+                parsed: parsed,
+                regions: ["2311", "3079"],
+                regionIndex: 0,
+                variantIndex: 0,
+                completion: completion
+            )
+            return
+        }
 
         tryFavoritePlaylistDirect(
             on: speakerIP,
@@ -510,28 +524,14 @@ final class SonosService {
                 uri: uri,
                 metadata: metadata,
                 title: title,
-                label: "sonos-metadata"
+                label: "sonos-metadata",
+                lastError: directError
             ) { queueError in
                 if queueError == nil {
                     completion(.success(()))
                     return
                 }
-
-                if let parsed = self.extractPlaylistIDFromFavorite(uri: uri, metadata: metadata) {
-                    DebugLog.shared.log("Sonos favorite playlist fallback for \(parsed.id)")
-                    self.attemptSpotifyPlaylistPlayback(
-                        on: speakerIP,
-                        title: title,
-                        parsed: parsed,
-                        regions: ["2311", "3079"],
-                        regionIndex: 0,
-                        variantIndex: 0,
-                        completion: completion
-                    )
-                    return
-                }
-
-                completion(.failure(queueError ?? directError ?? .decodingFailed))
+                completion(.failure(queueError ?? directError))
             }
         }
     }
@@ -575,6 +575,7 @@ final class SonosService {
         metadata: String,
         title: String,
         label: String,
+        lastError: LocalHTTPError,
         completion: @escaping (LocalHTTPError?) -> Void
     ) {
         let attempts = favoritePlaylistQueueAttempts(uri: uri, metadata: metadata, title: title)
@@ -583,6 +584,7 @@ final class SonosService {
             attempts: attempts,
             index: 0,
             label: label,
+            lastError: lastError,
             completion: completion
         )
     }
@@ -623,10 +625,11 @@ final class SonosService {
         attempts: [(uri: String, metadata: String)],
         index: Int,
         label: String,
+        lastError: LocalHTTPError,
         completion: @escaping (LocalHTTPError?) -> Void
     ) {
         guard index < attempts.count else {
-            completion(.decodingFailed)
+            completion(lastError)
             return
         }
 
@@ -646,13 +649,21 @@ final class SonosService {
                         completion(nil)
                     case .failure(let error):
                         DebugLog.shared.log("Sonos favorite playlist queue bind failed: \(error.localizedDescription)")
-                        self.tryFavoritePlaylistQueueAttempts(
-                            on: speakerIP,
-                            attempts: attempts,
-                            index: index + 1,
-                            label: label,
-                            completion: completion
-                        )
+                        self.performPlay(on: speakerIP) { directPlayResult in
+                            switch directPlayResult {
+                            case .success:
+                                completion(nil)
+                            case .failure:
+                                self.tryFavoritePlaylistQueueAttempts(
+                                    on: speakerIP,
+                                    attempts: attempts,
+                                    index: index + 1,
+                                    label: label,
+                                    lastError: error,
+                                    completion: completion
+                                )
+                            }
+                        }
                     }
                 }
             case .failure(let error):
@@ -662,6 +673,7 @@ final class SonosService {
                     attempts: attempts,
                     index: index + 1,
                     label: label,
+                    lastError: error,
                     completion: completion
                 )
             }
@@ -716,7 +728,9 @@ final class SonosService {
         let patterns = [
             "spotify%3aplaylist%3a([A-Za-z0-9]+)",
             "spotify%3auser%3aspotify%3aplaylist%3a([A-Za-z0-9]+)",
-            "spotify:playlist:([A-Za-z0-9]+)"
+            "spotify:playlist:([A-Za-z0-9]+)",
+            "1006206cspotify%3aplaylist%3a([A-Za-z0-9]+)",
+            "0006206cspotify%3auser%3aspotify%3aplaylist%3a([A-Za-z0-9]+)"
         ]
         for pattern in patterns {
             guard
@@ -766,14 +780,24 @@ final class SonosService {
             case .failure(let error):
                 completion(.failure(error))
             case .success(let xml):
-                guard
-                    let resultXML = self.extractXMLValue(named: "Result", from: xml),
-                    let favorite = self.parseSonosFavoriteItems(from: resultXML).first(where: { !$0.uri.isEmpty })
-                else {
+                guard let resultXML = self.extractXMLValue(named: "Result", from: xml) else {
                     completion(.failure(.decodingFailed))
                     return
                 }
-                completion(.success((favorite.uri, favorite.metadata)))
+                let favorites = self.parseSonosFavoriteItems(from: resultXML)
+                if let favorite = favorites.first(where: { !$0.uri.isEmpty }) {
+                    completion(.success((favorite.uri, favorite.metadata)))
+                    return
+                }
+                if let favorite = favorites.first {
+                    let decodedMeta = self.decodeHTMLEntities(favorite.metadata)
+                    let itemID = favorite.objectID ?? ""
+                    if let uri = self.extractPlaybackURI(from: decodedMeta, itemID: itemID), !uri.isEmpty {
+                        completion(.success((uri, favorite.metadata)))
+                        return
+                    }
+                }
+                completion(.failure(.decodingFailed))
             }
         }
     }
@@ -1149,7 +1173,8 @@ final class SonosService {
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
         guard index < queueURIs.count else {
-            completion(.failure(.decodingFailed))
+            DebugLog.shared.log("Sonos queue bind exhausted, trying direct Play")
+            performPlay(on: speakerIP, completion: completion)
             return
         }
 
@@ -1783,20 +1808,32 @@ final class SonosService {
                 return
             }
 
-            guard let data = data, let xml = String(data: data, encoding: .utf8) else {
-                completion(.failure(.decodingFailed))
+            guard let http = response as? HTTPURLResponse else {
+                DebugLog.shared.error("Sonos SOAP missing HTTP response for \(action)")
+                completion(.failure(.invalidResponse))
+                return
+            }
+
+            guard (200...299).contains(http.statusCode) else {
+                DebugLog.shared.error("Sonos SOAP HTTP \(http.statusCode) for \(action)")
+                completion(.failure(.invalidResponse))
+                return
+            }
+
+            let payload = data ?? Data()
+            let xml = String(data: payload, encoding: .utf8)
+                ?? String(data: payload, encoding: .isoLatin1)
+                ?? ""
+
+            if xml.isEmpty {
+                DebugLog.shared.log("Sonos SOAP empty body for \(action) on \(ip)")
+                completion(.success(""))
                 return
             }
 
             if let fault = self.soapFaultMessage(from: xml) {
                 DebugLog.shared.error("Sonos SOAP fault: \(fault)")
                 completion(.failure(.transport(NSError(domain: "SonosSOAP", code: 1, userInfo: [NSLocalizedDescriptionKey: fault]))))
-                return
-            }
-
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                DebugLog.shared.error("Sonos SOAP HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-                completion(.failure(.invalidResponse))
                 return
             }
 
