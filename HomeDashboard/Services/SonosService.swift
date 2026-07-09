@@ -518,6 +518,7 @@ final class SonosService {
                 completion(.success(()))
                 return
             }
+            guard let directError = directError else { return }
 
             self.tryFavoritePlaylistQueue(
                 on: speakerIP,
