@@ -261,7 +261,13 @@ final class SonosService {
     func playFavorite(on speakerIP: String, favorite: SonosFavorite, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
         DebugLog.shared.log("Play Sonos favorite: \(favorite.title)")
 
-        if isPlaylistFavorite(uri: favorite.uri, metadata: favorite.metadata) {
+        if let envelope = extractInstantPlayEnvelope(from: favorite) {
+            DebugLog.shared.log("Sonos favorite instantPlay with resMD (region \(envelope.region ?? "unknown"))")
+            playInstantPlayFavorite(on: speakerIP, envelope: envelope, completion: completion)
+            return
+        }
+
+        if isPlaylistFavorite(favorite) {
             playFavoriteAsSpotifyPlaylist(on: speakerIP, favorite: favorite, completion: completion)
             return
         }
@@ -355,7 +361,8 @@ final class SonosService {
                 if let resolved = self.classifyBrowseResult(
                     resultXML,
                     objectID: objectID,
-                    storedMetadata: favorite.metadata
+                    storedMetadata: favorite.metadata,
+                    storedFavorite: favorite
                 ) {
                     completion(.success(resolved))
                     return
@@ -369,9 +376,14 @@ final class SonosService {
                         if let resolved = self.classifyBrowseResult(
                             childrenXML,
                             objectID: objectID,
-                            storedMetadata: favorite.metadata
+                            storedMetadata: favorite.metadata,
+                            storedFavorite: favorite
                         ) {
                             completion(.success(resolved))
+                            return
+                        }
+                        if let envelope = self.extractInstantPlayEnvelope(from: favorite) {
+                            completion(.success(.instantPlay(envelope)))
                             return
                         }
                         DebugLog.shared.error("Sonos browse \(objectID) returned no playable URI")
@@ -385,15 +397,27 @@ final class SonosService {
     private func classifyBrowseResult(
         _ resultXML: String,
         objectID: String,
-        storedMetadata: String
+        storedMetadata: String,
+        storedFavorite: SonosFavorite? = nil
     ) -> ResolvedFavoritePlayback? {
+        let combinedText = [resultXML, storedMetadata, storedFavorite?.rawBody ?? ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+
+        if let envelope = extractInstantPlayEnvelope(fromText: combinedText) {
+            return .instantPlay(envelope)
+        }
+
         let isTrack = browseResultIndicatesTrack(resultXML)
         let isPlaylist = browseResultIndicatesPlaylist(resultXML)
             || browseResultIndicatesPlaylist(storedMetadata)
             || browseResultIndicatesPlaylist(decodeHTMLEntities(storedMetadata))
+            || (storedFavorite.map { isPlaylistFavorite($0) } ?? false)
 
         if isPlaylist && !isTrack {
-            return resolvePlaylistFromBrowseXML(resultXML, objectID: objectID)
+            if let resolved = resolvePlaylistFromBrowseXML(resultXML, objectID: objectID) {
+                return resolved
+            }
         }
 
         let favorites = parseSonosFavoriteItems(from: resultXML)
@@ -466,12 +490,6 @@ final class SonosService {
         favorite: SonosFavorite,
         completion: @escaping (Result<Void, LocalHTTPError>) -> Void
     ) {
-        if let envelope = extractInstantPlayEnvelope(from: favorite) {
-            DebugLog.shared.log("Sonos favorite instantPlay with resMD (region \(envelope.region ?? "unknown"))")
-            playInstantPlayFavorite(on: speakerIP, envelope: envelope, completion: completion)
-            return
-        }
-
         let spotifyRegions = spotifyRegions(for: favorite)
 
         let startParsed = { [weak self] (parsed: ParsedSpotifyURI) in
@@ -503,7 +521,7 @@ final class SonosService {
         }
 
         withCoordinatorIP(for: speakerIP) { [weak self] coordinatorIP in
-            self?.resolveFavoritePlaylistID(at: coordinatorIP, objectID: objectID) { result in
+            self?.resolveFavoritePlaylistID(at: coordinatorIP, objectID: objectID, favorite: favorite) { result in
                 guard let self = self else { return }
                 switch result {
                 case .failure(let error):
@@ -513,6 +531,9 @@ final class SonosService {
                 case .success(.containerURI(let uri)):
                     DebugLog.shared.log("Sonos favorite playlist via container URI: \(uri)")
                     self.playContainerURI(on: speakerIP, uri: uri, title: favorite.title, completion: completion)
+                case .success(.instantPlay(let envelope)):
+                    DebugLog.shared.log("Sonos browsed instantPlay favorite (region \(envelope.region ?? "unknown"))")
+                    self.playInstantPlayFavorite(on: speakerIP, envelope: envelope, completion: completion)
                 }
             }
         }
@@ -521,11 +542,13 @@ final class SonosService {
     private enum ResolvedFavoritePlaylist {
         case spotifyID(ParsedSpotifyURI)
         case containerURI(String)
+        case instantPlay(SonosInstantPlayEnvelope)
     }
 
     private func resolveFavoritePlaylistID(
         at ip: String,
         objectID: String,
+        favorite: SonosFavorite? = nil,
         completion: @escaping (Result<ResolvedFavoritePlaylist, LocalHTTPError>) -> Void
     ) {
         browseSonosFavorite(at: ip, objectID: objectID, flag: "BrowseMetadata") { [weak self] result in
@@ -534,6 +557,14 @@ final class SonosService {
             case .failure(let error):
                 completion(.failure(error))
             case .success(let resultXML):
+                let combined = self.combinedFavoriteText(
+                    browseXML: resultXML,
+                    favorite: favorite
+                )
+                if let envelope = self.extractInstantPlayEnvelope(fromText: combined) {
+                    completion(.success(.instantPlay(envelope)))
+                    return
+                }
                 if let parsed = self.extractPlaylistIDFromFavorite(uri: "", metadata: resultXML, objectID: objectID) {
                     completion(.success(.spotifyID(parsed)))
                     return
@@ -552,6 +583,14 @@ final class SonosService {
                     case .failure(let error):
                         completion(.failure(error))
                     case .success(let childrenXML):
+                        let combined = self.combinedFavoriteText(
+                            browseXML: childrenXML,
+                            favorite: favorite
+                        )
+                        if let envelope = self.extractInstantPlayEnvelope(fromText: combined) {
+                            completion(.success(.instantPlay(envelope)))
+                            return
+                        }
                         if let parsed = self.extractPlaylistIDFromFavorite(uri: "", metadata: childrenXML, objectID: objectID) {
                             completion(.success(.spotifyID(parsed)))
                             return
@@ -930,6 +969,27 @@ final class SonosService {
         }
     }
 
+    private func combinedFavoriteText(browseXML: String, favorite: SonosFavorite?) -> String {
+        return [
+            browseXML,
+            favorite?.rawBody ?? "",
+            favorite.map { decodeHTMLEntities($0.metadata) } ?? "",
+            favorite?.uri.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+    }
+
+    private func isPlaylistFavorite(_ favorite: SonosFavorite) -> Bool {
+        if isPlaylistFavorite(uri: favorite.uri, metadata: favorite.metadata) {
+            return true
+        }
+        if isPlaylistFavorite(uri: favorite.rawBody, metadata: favorite.rawBody) {
+            return true
+        }
+        return extractInstantPlayEnvelope(from: favorite) != nil
+    }
+
     private func isPlaylistFavorite(uri: String, metadata: String) -> Bool {
         if uri.contains("cpcontainer") || metadata.contains("playlistContainer") {
             return true
@@ -950,17 +1010,29 @@ final class SonosService {
     }
 
     private func extractInstantPlayEnvelope(from favorite: SonosFavorite) -> SonosInstantPlayEnvelope? {
-        let texts = [
+        let combined = [
             favorite.rawBody,
             decodeHTMLEntities(favorite.metadata),
-            favorite.uri
+            favorite.uri.trimmingCharacters(in: .whitespacesAndNewlines)
         ]
-        for text in texts where !text.isEmpty {
-            if let envelope = extractInstantPlayEnvelope(fromText: text) {
-                return envelope
-            }
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+
+        if let envelope = extractInstantPlayEnvelope(fromText: combined) {
+            return envelope
         }
-        return nil
+
+        guard let resMD = extractResMD(from: combined) else { return nil }
+        let uri = favorite.uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !uri.isEmpty, uri.contains("cpcontainer") else { return nil }
+
+        let cdUdn = extractCdUdn(from: resMD)
+        let region = cdUdn.flatMap { extractSpotifyRegion(from: $0) }
+        return SonosInstantPlayEnvelope(
+            uri: decodeHTMLEntities(uri),
+            queueMetadata: xmlEscape(resMD),
+            region: region
+        )
     }
 
     private func extractInstantPlayEnvelope(fromText text: String) -> SonosInstantPlayEnvelope? {
@@ -971,7 +1043,8 @@ final class SonosService {
         let uri = extractResURI(from: decoded)
             .map(decodeHTMLEntities)
             ?? firstRegexMatch("x-rincon-cpcontainer:[^<\\s\"]+", in: decoded).map(decodeHTMLEntities)
-        guard let uri = uri, uri.contains("cpcontainer") else { return nil }
+        guard let uri = uri?.trimmingCharacters(in: .whitespacesAndNewlines),
+              uri.contains("cpcontainer") else { return nil }
 
         let cdUdn = extractCdUdn(from: resMD)
         let region = cdUdn.flatMap { extractSpotifyRegion(from: $0) }
@@ -1011,10 +1084,41 @@ final class SonosService {
 
     private func extractResMD(from text: String) -> String? {
         let decoded = fullyDecodeHTMLEntities(text)
-        guard let raw = extractXMLTagContent(tag: "r:resMD", from: decoded) else { return nil }
-        let didl = fullyDecodeHTMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard didl.contains("DIDL-Lite") else { return nil }
-        return didl
+        if let raw = extractXMLTagContent(tag: "r:resMD", from: decoded) {
+            let didl = fullyDecodeHTMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            if didl.contains("DIDL-Lite"), didl.contains("playlistContainer") || didl.contains("cdudn") {
+                return didl
+            }
+        }
+
+        let pattern = "<r:resMD[^>]*>(.*?)</r:resMD>"
+        if let raw = firstCaptureGroupMultiline(pattern: pattern, in: decoded) {
+            let didl = fullyDecodeHTMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            if didl.contains("DIDL-Lite") {
+                return didl
+            }
+        }
+
+        if let didl = firstCaptureGroupMultiline(
+            pattern: "(<DIDL-Lite[^>]*>.*?playlistContainer.*?</DIDL-Lite>)",
+            in: decoded
+        ) {
+            return fullyDecodeHTMLEntities(didl).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return nil
+    }
+
+    private func firstCaptureGroupMultiline(pattern: String, in text: String) -> String? {
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
+            let match = regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)),
+            match.numberOfRanges > 1,
+            let range = Range(match.range(at: 1), in: text)
+        else {
+            return nil
+        }
+        return String(text[range])
     }
 
     private func extractCdUdn(from didl: String) -> String? {
