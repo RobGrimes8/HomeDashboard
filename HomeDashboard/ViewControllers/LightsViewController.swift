@@ -1,41 +1,84 @@
 import UIKit
 
-final class LightsViewController: UIViewController, DashboardServiceDelegate, UITableViewDataSource, UITableViewDelegate {
+final class LightsViewController: UIViewController, DashboardServiceDelegate, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UITableViewDataSource, UITableViewDelegate {
 
     private let service = DashboardService(config: AppConfig.load())
     private var lightGroups: [SmartDevice] = []
     private var lights: [SmartDevice] = []
     private var statusMessage: String?
 
-    private enum Section: Int, CaseIterable {
-        case groups
-        case lights
+    private let groupsTitleLabel = UILabel()
+    private let groupsCollectionView: UICollectionView
+    private let lightsTitleLabel = UILabel()
+    private let lightsTableView = UITableView(frame: .zero, style: .plain)
+
+    private let groupsLayout: UICollectionViewFlowLayout = {
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 14
+        layout.minimumLineSpacing = 14
+        layout.sectionInset = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
+        return layout
+    }()
+
+    init() {
+        groupsCollectionView = UICollectionView(frame: .zero, collectionViewLayout: groupsLayout)
+        super.init(nibName: nil, bundle: nil)
     }
 
-    private let tableView = UITableView(frame: .zero, style: .grouped)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Lights"
-        view.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
+        view.backgroundColor = DashboardTheme.background
 
         navigationController?.navigationBar.barStyle = .black
-        navigationController?.navigationBar.barTintColor = UIColor(white: 0.08, alpha: 1.0)
+        navigationController?.navigationBar.barTintColor = DashboardTheme.navBar
         navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
 
-        tableView.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
-        tableView.separatorColor = UIColor(white: 0.18, alpha: 1.0)
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.register(LightControlCell.self, forCellReuseIdentifier: LightControlCell.reuseID)
+        groupsTitleLabel.text = "Rooms"
+        groupsTitleLabel.font = UIFont.systemFont(ofSize: 22, weight: .bold)
+        groupsTitleLabel.textColor = .white
 
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(tableView)
+        lightsTitleLabel.text = "Individual Lights"
+        lightsTitleLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        lightsTitleLabel.textColor = UIColor(white: 0.82, alpha: 1.0)
+
+        groupsCollectionView.backgroundColor = .clear
+        groupsCollectionView.dataSource = self
+        groupsCollectionView.delegate = self
+        groupsCollectionView.register(GroupCardCell.self, forCellWithReuseIdentifier: GroupCardCell.reuseID)
+        groupsCollectionView.showsHorizontalScrollIndicator = false
+
+        lightsTableView.backgroundColor = .clear
+        lightsTableView.separatorColor = UIColor(white: 0.22, alpha: 1.0)
+        lightsTableView.dataSource = self
+        lightsTableView.delegate = self
+        lightsTableView.register(LightControlCell.self, forCellReuseIdentifier: LightControlCell.reuseID)
+
+        [groupsTitleLabel, groupsCollectionView, lightsTitleLabel, lightsTableView].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview($0)
+        }
+
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            groupsTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            groupsTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+
+            groupsCollectionView.topAnchor.constraint(equalTo: groupsTitleLabel.bottomAnchor, constant: 12),
+            groupsCollectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            groupsCollectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            groupsCollectionView.heightAnchor.constraint(equalToConstant: 190),
+
+            lightsTitleLabel.topAnchor.constraint(equalTo: groupsCollectionView.bottomAnchor, constant: 16),
+            lightsTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+
+            lightsTableView.topAnchor.constraint(equalTo: lightsTitleLabel.bottomAnchor, constant: 8),
+            lightsTableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            lightsTableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            lightsTableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
         service.delegate = self
@@ -55,6 +98,14 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .landscape
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        return .landscapeLeft
     }
 
     @objc private func configDidChange() {
@@ -88,89 +139,115 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
         } else {
             statusMessage = nil
         }
-        tableView.reloadData()
+        groupsCollectionView.reloadData()
+        lightsTableView.reloadData()
     }
 
     func dashboardService(_ service: DashboardService, didFailWith error: Error) {
         presentAlert(title: "Lights Unavailable", message: error.localizedDescription)
     }
 
-    // MARK: - UITableView
+    // MARK: - Groups Collection
 
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return Section.allCases.count
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return max(lightGroups.count, 1)
     }
+
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: GroupCardCell.reuseID, for: indexPath) as? GroupCardCell else {
+            return UICollectionViewCell()
+        }
+
+        if lightGroups.isEmpty {
+            cell.configurePlaceholder()
+            cell.onTurnOn = nil
+            cell.onTurnOff = nil
+            return cell
+        }
+
+        let group = lightGroups[indexPath.item]
+        cell.configure(with: group)
+        cell.onTurnOn = { [weak self, weak cell] in
+            self?.setGroup(group, isOn: true, cell: cell)
+        }
+        cell.onTurnOff = { [weak self, weak cell] in
+            self?.setGroup(group, isOn: false, cell: cell)
+        }
+        return cell
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
+        let columns: CGFloat = 4
+        let inset: CGFloat = 40
+        let spacing: CGFloat = 14 * (columns - 1)
+        let width = floor((collectionView.bounds.width - inset - spacing) / columns)
+        return CGSize(width: max(width, 150), height: 170)
+    }
+
+    private func setGroup(_ group: SmartDevice, isOn: Bool, cell: GroupCardCell?) {
+        guard group.isOn != isOn else { return }
+
+        cell?.setPoweredOn(isOn)
+
+        let target = SmartDevice(
+            id: group.id,
+            name: group.name,
+            kind: group.kind,
+            room: group.room,
+            isOn: !isOn,
+            brightness: group.brightness,
+            volume: group.volume,
+            isReachable: group.isReachable
+        )
+
+        service.toggleDevice(target) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.service.refreshNow()
+                case .failure(let error):
+                    cell?.setPoweredOn(group.isOn)
+                    self?.presentAlert(title: "Could Not Toggle", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    // MARK: - Lights Table
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard let section = Section(rawValue: section) else { return 0 }
-        switch section {
-        case .groups:
-            return max(lightGroups.count, 1)
-        case .lights:
-            return max(lights.count, 1)
-        }
-    }
-
-    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard let section = Section(rawValue: section) else { return nil }
-        switch section {
-        case .groups:
-            return "Groups"
-        case .lights:
-            return "Individual Lights"
-        }
-    }
-
-    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard Section(rawValue: section) == .groups else { return nil }
-        if lightGroups.isEmpty {
-            return "Hue rooms appear here automatically. Add custom groups in Settings using light names."
-        }
-        return "Control a whole room at once. Create more groups in Settings or the Hue app."
+        return max(lights.count, 1)
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard
-            let cell = tableView.dequeueReusableCell(withIdentifier: LightControlCell.reuseID, for: indexPath) as? LightControlCell,
-            let section = Section(rawValue: indexPath.section)
-        else {
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: LightControlCell.reuseID, for: indexPath) as? LightControlCell else {
             return UITableViewCell()
         }
 
-        switch section {
-        case .groups:
-            if lightGroups.isEmpty {
+        if lights.isEmpty {
+            let config = AppConfig.load()
+            if config.isHueConfigured {
                 cell.configurePlaceholder(
-                    title: "No groups yet",
-                    detail: "Hue rooms sync automatically, or add custom groups in Settings."
+                    title: "No lights found",
+                    detail: statusMessage ?? "Check bridge IP and username, then tap refresh."
                 )
-                cell.onToggle = nil
-                cell.onBrightnessChanged = nil
             } else {
-                configureCell(cell, with: lightGroups[indexPath.row])
+                cell.configurePlaceholder()
             }
-        case .lights:
-            if lights.isEmpty {
-                let config = AppConfig.load()
-                if config.isHueConfigured {
-                    cell.configurePlaceholder(
-                        title: "No lights found",
-                        detail: statusMessage ?? "Check bridge IP and username, then tap refresh."
-                    )
-                } else {
-                    cell.configurePlaceholder()
-                }
-                cell.onToggle = nil
-                cell.onBrightnessChanged = nil
-            } else {
-                configureCell(cell, with: lights[indexPath.row])
-            }
+            cell.onToggle = nil
+            cell.onBrightnessChanged = nil
+        } else {
+            configureLightCell(cell, with: lights[indexPath.row])
         }
 
         return cell
     }
 
-    private func configureCell(_ cell: LightControlCell, with device: SmartDevice) {
+    private func configureLightCell(_ cell: LightControlCell, with device: SmartDevice) {
         cell.configure(with: device)
         cell.onToggle = { [weak self, weak cell] in
             guard let self = self, let cell = cell else { return }
@@ -200,7 +277,7 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 110
+        return 100
     }
 
     private func presentAlert(title: String, message: String) {

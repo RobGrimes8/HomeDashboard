@@ -17,4 +17,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         DebugLog.shared.log("App launched")
         return true
     }
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        return .landscape
+    }
 }

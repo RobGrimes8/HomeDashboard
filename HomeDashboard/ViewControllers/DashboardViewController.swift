@@ -20,7 +20,7 @@ final class DashboardViewController: UIViewController, DashboardServiceDelegate 
         layout.minimumLineSpacing = 16
         layout.sectionInset = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        view.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
+        view.backgroundColor = DashboardTheme.background
         view.alwaysBounceVertical = true
         return view
     }()
@@ -34,11 +34,11 @@ final class DashboardViewController: UIViewController, DashboardServiceDelegate 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Home Dashboard"
-        view.backgroundColor = UIColor(white: 0.06, alpha: 1.0)
+        view.backgroundColor = DashboardTheme.background
 
         navigationController?.navigationBar.barStyle = .black
         navigationController?.navigationBar.isTranslucent = false
-        navigationController?.navigationBar.barTintColor = UIColor(white: 0.08, alpha: 1.0)
+        navigationController?.navigationBar.barTintColor = DashboardTheme.navBar
         navigationController?.navigationBar.titleTextAttributes = [
             .foregroundColor: UIColor.white
         ]

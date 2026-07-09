@@ -5,8 +5,8 @@ final class MainTabBarController: UITabBarController {
     override func viewDidLoad() {
         super.viewDidLoad()
         tabBar.isTranslucent = false
-        tabBar.barTintColor = UIColor(white: 0.08, alpha: 1.0)
-        tabBar.tintColor = UIColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1.0)
+        tabBar.barTintColor = DashboardTheme.sidebar
+        tabBar.tintColor = DashboardTheme.accent
         tabBar.unselectedItemTintColor = UIColor(white: 0.55, alpha: 1.0)
 
         let dashboard = DashboardViewController()
@@ -27,6 +27,10 @@ final class MainTabBarController: UITabBarController {
             UINavigationController(rootViewController: sonos),
             UINavigationController(rootViewController: settings)
         ]
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .landscape
     }
 
     /// SF Symbols require iOS 13+. On iOS 12, render a simple text badge so tabs stay visible.
