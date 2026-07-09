@@ -23,9 +23,21 @@ struct AppConfig: Codable {
         return !ip.isEmpty && !user.isEmpty && user != "YOUR_HUE_API_USERNAME"
     }
 
+    func sanitized() -> AppConfig {
+        AppConfig(
+            hueBridgeIP: hueBridgeIP.trimmingCharacters(in: .whitespacesAndNewlines),
+            hueUsername: hueUsername.trimmingCharacters(in: .whitespacesAndNewlines),
+            sonosSpeakerIPs: sonosSpeakerIPs
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            refreshIntervalSeconds: refreshIntervalSeconds,
+            requestTimeoutSeconds: requestTimeoutSeconds
+        )
+    }
+
     static func load() -> AppConfig {
         if let saved = loadFromDocuments() {
-            return saved
+            return saved.sanitized()
         }
 
         guard
@@ -35,7 +47,7 @@ struct AppConfig: Codable {
         else {
             return .default
         }
-        return config
+        return config.sanitized()
     }
 
     static func loadFromDocuments() -> AppConfig? {
@@ -51,9 +63,10 @@ struct AppConfig: Codable {
     }
 
     func saveToDocuments() -> Bool {
+        let clean = sanitized()
         guard
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
-            let data = try? JSONEncoder().encode(self)
+            let data = try? JSONEncoder().encode(clean)
         else {
             return false
         }
@@ -61,9 +74,14 @@ struct AppConfig: Codable {
         let url = documents.appendingPathComponent("Config.json")
         do {
             try data.write(to: url, options: .atomic)
+            NotificationCenter.default.post(name: .appConfigDidChange, object: nil)
             return true
         } catch {
             return false
         }
     }
+}
+
+extension Notification.Name {
+    static let appConfigDidChange = Notification.Name("AppConfigDidChange")
 }

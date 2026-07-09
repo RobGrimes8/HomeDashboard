@@ -17,8 +17,13 @@ final class LightsService {
     }
 
     func fetchLights(completion: @escaping (Result<[SmartDevice], LocalHTTPError>) -> Void) {
-        let url = "http://\(config.hueBridgeIP)/api/\(config.hueUsername)/lights"
-        client.get(urlString: url) { result in
+        let clean = config.sanitized()
+        guard let url = hueLightsURL(bridgeIP: clean.hueBridgeIP, username: clean.hueUsername) else {
+            completion(.failure(.invalidURL))
+            return
+        }
+
+        client.get(urlString: url.absoluteString) { result in
             switch result {
             case .failure(let error):
                 completion(.failure(error))
@@ -29,14 +34,30 @@ final class LightsService {
     }
 
     func setLightOn(_ lightID: String, isOn: Bool, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        let url = "http://\(config.hueBridgeIP)/api/\(config.hueUsername)/lights/\(lightID)/state"
-        client.put(urlString: url, body: ["on": isOn], completion: completion)
+        let clean = config.sanitized()
+        guard let url = hueLightStateURL(bridgeIP: clean.hueBridgeIP, username: clean.hueUsername, lightID: lightID) else {
+            completion(.failure(.invalidURL))
+            return
+        }
+        client.put(urlString: url.absoluteString, body: ["on": isOn], completion: completion)
     }
 
     func setBrightness(_ lightID: String, brightness: Int, completion: @escaping (Result<Void, LocalHTTPError>) -> Void) {
-        let url = "http://\(config.hueBridgeIP)/api/\(config.hueUsername)/lights/\(lightID)/state"
+        let clean = config.sanitized()
+        guard let url = hueLightStateURL(bridgeIP: clean.hueBridgeIP, username: clean.hueUsername, lightID: lightID) else {
+            completion(.failure(.invalidURL))
+            return
+        }
         let clamped = max(0, min(254, brightness))
-        client.put(urlString: url, body: ["on": true, "bri": clamped], completion: completion)
+        client.put(urlString: url.absoluteString, body: ["on": true, "bri": clamped], completion: completion)
+    }
+
+    private func hueLightsURL(bridgeIP: String, username: String) -> URL? {
+        URL(string: "http://\(bridgeIP)/api/\(username)/lights")
+    }
+
+    private func hueLightStateURL(bridgeIP: String, username: String, lightID: String) -> URL? {
+        URL(string: "http://\(bridgeIP)/api/\(username)/lights/\(lightID)/state")
     }
 
     private func parseLights(from data: Data) -> Result<[SmartDevice], LocalHTTPError> {

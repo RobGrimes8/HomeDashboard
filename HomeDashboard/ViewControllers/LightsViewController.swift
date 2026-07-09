@@ -38,6 +38,22 @@ final class LightsViewController: UIViewController, DashboardServiceDelegate, UI
             target: self,
             action: #selector(refreshTapped)
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(configDidChange),
+            name: .appConfigDidChange,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func configDidChange() {
+        service.updateConfig(AppConfig.load())
+        service.refreshNow()
     }
 
     override func viewWillAppear(_ animated: Bool) {
