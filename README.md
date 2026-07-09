@@ -34,6 +34,25 @@ Built with **UIKit** (not SwiftUI) so it runs on iOS 12.5.x.
 
 5. **Configure devices** in the app’s **Settings** tab (or edit `HomeDashboard/Resources/Config.json` before building).
 
+## Light Groups
+
+The **Lights** tab has two sections:
+
+### Hue rooms (automatic)
+Rooms and zones from your Hue app sync automatically — e.g. **Office**, **Living room**, **Garden**. Control the whole room with one toggle or slider.
+
+To change these groups, edit rooms in the **Hue app**, then tap refresh in HomeDashboard.
+
+### Custom groups (Settings)
+To group specific lights that aren't in the same Hue room, open **Settings → Custom Light Groups** and enter one group per line:
+
+```
+Desks=Desk 1, Desk 2, Desk 3
+TV Area=TV, Lamp
+```
+
+Use the **exact light names** from the **Individual Lights** section. Tap **Save Settings**, then refresh the Lights tab.
+
 ## Project Structure
 
 ```
